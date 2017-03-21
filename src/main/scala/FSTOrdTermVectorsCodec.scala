@@ -28,8 +28,9 @@ import org.apache.lucene.codecs.memory.FSTOrdTermsExposingTermsWriter
 import org.apache.lucene.codecs.compressing.OrdTermVectorsReader
 import org.apache.lucene.codecs.memory.FSTOrdOrdsExposingTermsReader
 import org.apache.lucene.codecs.lucene50.Lucene50TermVectorsFormat
+import org.apache.lucene.codecs.lucene50.Lucene50StoredFieldsFormat.Mode
 
-class FSTOrdTermVectorsCodec extends FilterCodec("FSTOrdTermVectors62",new Lucene62Codec()) {
+class FSTOrdTermVectorsCodec extends FilterCodec("FSTOrdTermVectors62",new Lucene62Codec(Mode.BEST_COMPRESSION)) {
   val termMap = new java.util.HashMap[SegmentInfo,java.util.Map[FieldInfo,FST[java.lang.Long]]]
   override def postingsFormat = new PostingsFormat("FSTOrd50") {
     
