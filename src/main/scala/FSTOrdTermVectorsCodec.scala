@@ -29,8 +29,10 @@ import org.apache.lucene.codecs.compressing.OrdTermVectorsReader
 import org.apache.lucene.codecs.memory.FSTOrdOrdsExposingTermsReader
 import org.apache.lucene.codecs.lucene50.Lucene50TermVectorsFormat
 import org.apache.lucene.codecs.lucene50.Lucene50StoredFieldsFormat.Mode
+import java.util.function.Predicate
 
 class FSTOrdTermVectorsCodec extends FilterCodec("FSTOrdTermVectors62",new Lucene62Codec(Mode.BEST_COMPRESSION)) {
+  
   val termMap = new java.util.HashMap[SegmentInfo,java.util.Map[FieldInfo,FST[java.lang.Long]]]
   override def postingsFormat = new PostingsFormat("FSTOrd50") {
     
@@ -59,13 +61,15 @@ class FSTOrdTermVectorsCodec extends FilterCodec("FSTOrdTermVectors62",new Lucen
       }
     }
   }
+  
+  var termVectorFilter: Predicate[BytesRef] = null
 
   override def termVectorsFormat = new TermVectorsFormat {
      override def vectorsReader(directory: org.apache.lucene.store.Directory,segmentInfo: org.apache.lucene.index.SegmentInfo,fieldInfos: org.apache.lucene.index.FieldInfos,context: org.apache.lucene.store.IOContext): org.apache.lucene.codecs.TermVectorsReader = {
        return new OrdTermVectorsReader(directory, segmentInfo, "",fieldInfos, context, "OrdTermVectors", CompressionMode.FAST_DECOMPRESSION, termMap.get(segmentInfo))
      }
      override def vectorsWriter(directory: org.apache.lucene.store.Directory,segmentInfo: org.apache.lucene.index.SegmentInfo,context: org.apache.lucene.store.IOContext): org.apache.lucene.codecs.TermVectorsWriter = {
-       val ret = new OrdTermVectorsWriter(directory, segmentInfo, "", context, "OrdTermVectors", CompressionMode.FAST_DECOMPRESSION, 1 << 12, 1024, termMap.get(segmentInfo))
+       val ret = new OrdTermVectorsWriter(directory, segmentInfo, "", context, "OrdTermVectors", CompressionMode.FAST_DECOMPRESSION, 1 << 12, 1024, termMap.get(segmentInfo), termVectorFilter)
        return ret
      }
 

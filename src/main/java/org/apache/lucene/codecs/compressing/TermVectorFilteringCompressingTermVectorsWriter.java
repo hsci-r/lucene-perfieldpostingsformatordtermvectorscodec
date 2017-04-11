@@ -22,7 +22,6 @@ import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.Deque;
 import java.util.Iterator;
-import java.util.Map;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.function.Predicate;
@@ -47,8 +46,6 @@ import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.StringHelper;
-import org.apache.lucene.util.fst.BytesRefFSTEnum;
-import org.apache.lucene.util.fst.FST;
 import org.apache.lucene.util.packed.BlockPackedWriter;
 import org.apache.lucene.util.packed.PackedInts;
 
@@ -56,7 +53,7 @@ import org.apache.lucene.util.packed.PackedInts;
  * {@link TermVectorsWriter} for {@link CompressingTermVectorsFormat}.
  * @lucene.experimental
  */
-public final class OrdTermVectorsWriter extends TermVectorsWriter {
+public final class TermVectorFilteringCompressingTermVectorsWriter extends TermVectorsWriter {
 
   // hard limit on the maximum number of documents per chunk
   static final int MAX_DOCUMENTS_PER_CHUNK = 128;
@@ -82,6 +79,7 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
   private CompressingStoredFieldsIndexWriter indexWriter;
   private IndexOutput vectorsStream;
 
+  private final CompressionMode compressionMode;
   private final Compressor compressor;
   private final int chunkSize;
   
@@ -142,8 +140,7 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
   private class FieldData {
     final boolean hasPositions, hasOffsets, hasPayloads;
     final int fieldNum, flags, maxNumTerms;
-    final int[] freqs;
-    final long[] terms;
+    final int[] freqs, prefixLengths, suffixLengths;
     final int posStart, offStart, payStart;
     int totalPositions;
     int ord;
@@ -156,16 +153,18 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
       this.hasPayloads = payloads;
       this.flags = (positions ? POSITIONS : 0) | (offsets ? OFFSETS : 0) | (payloads ? PAYLOADS : 0);
       this.freqs = new int[numTerms];
-      this.terms = new long[numTerms];
+      this.prefixLengths = new int[numTerms];
+      this.suffixLengths = new int[numTerms];
       this.posStart = posStart;
       this.offStart = offStart;
       this.payStart = payStart;
       totalPositions = 0;
       ord = 0;
     }
-    void addTerm(int freq, long term) {
+    void addTerm(int freq, int prefixLength, int suffixLength) {
       freqs[ord] = freq;
-      terms[ord] = term;
+      prefixLengths[ord] = prefixLength;
+      suffixLengths[ord] = suffixLength;
       ++ord;
     }
     void addPosition(int position, int startOffset, int length, int payloadLength) {
@@ -198,27 +197,29 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
   private final Deque<DocData> pendingDocs; // pending docs
   private DocData curDoc; // current document
   private FieldData curField; // current field
+  private final BytesRef lastTerm;
   private int[] positionsBuf, startOffsetsBuf, lengthsBuf, payloadLengthsBuf;
+  private final GrowableByteArrayDataOutput termSuffixes; // buffered term suffixes
   private final GrowableByteArrayDataOutput payloadBytes; // buffered term payloads
   private final BlockPackedWriter writer;
-  
-  private final Map<FieldInfo,FST<Long>> termDict;
   
   private final Predicate<BytesRef> termVectorFilter;
 
   /** Sole constructor. */
-  public OrdTermVectorsWriter(Directory directory, SegmentInfo si, String segmentSuffix, IOContext context,
-      String formatName, CompressionMode compressionMode, int chunkSize, int blockSize, Map<FieldInfo,FST<Long>> termDict, Predicate<BytesRef> termVectorFilter) throws IOException {
+  public TermVectorFilteringCompressingTermVectorsWriter(Directory directory, SegmentInfo si, String segmentSuffix, IOContext context,
+      String formatName, CompressionMode compressionMode, int chunkSize, int blockSize, Predicate<BytesRef> termVectorFilter) throws IOException {
     assert directory != null;
     this.segment = si.name;
+    this.compressionMode = compressionMode;
     this.compressor = compressionMode.newCompressor();
     this.chunkSize = chunkSize;
-    this.termDict = termDict;
     this.termVectorFilter = termVectorFilter;
 
     numDocs = 0;
     pendingDocs = new ArrayDeque<>();
+    termSuffixes = new GrowableByteArrayDataOutput(ArrayUtil.oversize(chunkSize, 1));
     payloadBytes = new GrowableByteArrayDataOutput(ArrayUtil.oversize(1, 1));
+    lastTerm = new BytesRef(ArrayUtil.oversize(30, 1));
 
     boolean success = false;
     IndexOutput indexStream = directory.createOutput(IndexFileNames.segmentFileName(segment, segmentSuffix, VECTORS_INDEX_EXTENSION), 
@@ -272,6 +273,8 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
   @Override
   public void finishDocument() throws IOException {
     // append the payload bytes of the doc after its terms
+    termSuffixes.writeBytes(payloadBytes.bytes, payloadBytes.length);
+    payloadBytes.length = 0;
     ++numDocs;
     if (triggerFlush()) {
       flush();
@@ -279,13 +282,11 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
     curDoc = null;
   }
 
-  private BytesRefFSTEnum<Long> curTermDict;
-  
   @Override
   public void startField(FieldInfo info, int numTerms, boolean positions,
       boolean offsets, boolean payloads) throws IOException {
     curField = curDoc.addField(info.number, numTerms, positions, offsets, payloads);
-    curTermDict = new BytesRefFSTEnum<>(termDict.get(info));
+    lastTerm.length = 0;
   }
 
   @Override
@@ -297,19 +298,22 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
 
   @Override
   public void startTerm(BytesRef term, int freq) throws IOException {
-	assert freq >= 1;
-	if (termVectorFilter != null && !termVectorFilter.test(term)) {
-		filterCurrentTerm = true;
-	} else {
-		filterCurrentTerm = false;
-	    try {
-	    	curField.addTerm(freq, curTermDict.seekExact(term).output);
-	    } catch (NullPointerException e) {
-	    	System.out.println(term+" not found!");
-	    	System.out.println("="+term.utf8ToString());
-	    	throw e;
+    assert freq >= 1;
+    if (termVectorFilter != null && !termVectorFilter.test(term)) {
+    	filterCurrentTerm = true;
+    } else {
+    	filterCurrentTerm = false;
+	    final int prefix = StringHelper.bytesDifference(lastTerm, term);
+	    curField.addTerm(freq, prefix, term.length - prefix);
+	    termSuffixes.writeBytes(term.bytes, term.offset + prefix, term.length - prefix);
+	    // copy last term
+	    if (lastTerm.bytes.length < term.length) {
+	      lastTerm.bytes = new byte[ArrayUtil.oversize(term.length, 1)];
 	    }
-	}
+	    lastTerm.offset = 0;
+	    lastTerm.length = term.length;
+	    System.arraycopy(term.bytes, term.offset, lastTerm.bytes, 0, term.length);
+    }
   }
 
   @Override
@@ -325,7 +329,7 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
   }
 
   private boolean triggerFlush() {
-    return payloadBytes.length >= chunkSize
+    return termSuffixes.length >= chunkSize
         || pendingDocs.size() >= MAX_DOCUMENTS_PER_CHUNK;
   }
 
@@ -352,8 +356,8 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
       flushFlags(totalFields, fieldNums);
       // number of terms of each field
       flushNumTerms(totalFields);
-      // terms for each field
-      flushTerms();
+      // prefix and suffix lengths for each field
+      flushTermLengths();
       // term freqs - 1 (because termFreq is always >=1) for each term
       flushTermFreqs();
       // positions for all terms, when enabled
@@ -364,14 +368,14 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
       flushPayloadLengths();
 
       // compress terms and payloads and write them to the output
-      compressor.compress(payloadBytes.bytes, 0, payloadBytes.length, vectorsStream);
+      compressor.compress(termSuffixes.bytes, 0, termSuffixes.length, vectorsStream);
     }
 
     // reset
     pendingDocs.clear();
     curDoc = null;
     curField = null;
-    payloadBytes.length = 0;
+    termSuffixes.length = 0;
     numChunks++;
   }
 
@@ -498,15 +502,21 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
     writer.finish();
   }
 
-  private void flushTerms() throws IOException {
+  private void flushTermLengths() throws IOException {
     writer.reset(vectorsStream);
     for (DocData dd : pendingDocs) {
       for (FieldData fd : dd.fields) {
-        long previousTerm = -1;
         for (int i = 0; i < fd.ord; ++i) {
-          final long term = fd.terms[i]; 
-          writer.add(term - previousTerm - 1);
-          previousTerm = term;
+          writer.add(fd.prefixLengths[i]);
+        }
+      }
+    }
+    writer.finish();
+    writer.reset(vectorsStream);
+    for (DocData dd : pendingDocs) {
+      for (FieldData fd : dd.fields) {
+        for (int i = 0; i < fd.ord; ++i) {
+          writer.add(fd.suffixLengths[i]);
         }
       }
     }
@@ -621,7 +631,7 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
           int pos = 0;
           for (int i = 0; i < fd.ord; ++i) {
             for (int j = 0; j < fd.freqs[i]; ++j) {
-              writer.add(lengthsBuf[fd.offStart + pos++]);
+              writer.add(lengthsBuf[fd.offStart + pos++] - fd.prefixLengths[i] - fd.suffixLengths[i]);
             }
           }
           assert pos == fd.totalPositions;
@@ -741,27 +751,104 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
     int docCount = 0;
     int numReaders = mergeState.maxDocs.length;
 
+    MatchingReaders matching = new MatchingReaders(mergeState);
+    
     for (int readerIndex=0;readerIndex<numReaders;readerIndex++) {
+      CompressingTermVectorsReader matchingVectorsReader = null;
       final TermVectorsReader vectorsReader = mergeState.termVectorsReaders[readerIndex];
+      if (matching.matchingReaders[readerIndex]) {
+        // we can only bulk-copy if the matching reader is also a CompressingTermVectorsReader
+        if (vectorsReader != null && vectorsReader instanceof CompressingTermVectorsReader) {
+          matchingVectorsReader = (CompressingTermVectorsReader) vectorsReader;
+        }
+      }
 
       final int maxDoc = mergeState.maxDocs[readerIndex];
       final Bits liveDocs = mergeState.liveDocs[readerIndex];
       
-      if (vectorsReader != null) {
-        vectorsReader.checkIntegrity();
-      }
-      for (int i = 0; i < maxDoc; i++) {
-        if (liveDocs != null && liveDocs.get(i) == false) {
-          continue;
+      if (matchingVectorsReader != null &&
+          matchingVectorsReader.getCompressionMode() == compressionMode &&
+          matchingVectorsReader.getChunkSize() == chunkSize &&
+          matchingVectorsReader.getVersion() == VERSION_CURRENT && 
+          matchingVectorsReader.getPackedIntsVersion() == PackedInts.VERSION_CURRENT &&
+          BULK_MERGE_ENABLED &&
+          liveDocs == null &&
+          !tooDirty(matchingVectorsReader)) {
+        // optimized merge, raw byte copy
+        // its not worth fine-graining this if there are deletions.
+        
+        matchingVectorsReader.checkIntegrity();
+        
+        // flush any pending chunks
+        if (!pendingDocs.isEmpty()) {
+          flush();
+          numDirtyChunks++; // incomplete: we had to force this flush
         }
-        Fields vectors;
-        if (vectorsReader == null) {
-          vectors = null;
-        } else {
-          vectors = vectorsReader.get(i);
+        
+        // iterate over each chunk. we use the vectors index to find chunk boundaries,
+        // read the docstart + doccount from the chunk header (we write a new header, since doc numbers will change),
+        // and just copy the bytes directly.
+        IndexInput rawDocs = matchingVectorsReader.getVectorsStream();
+        CompressingStoredFieldsIndexReader index = matchingVectorsReader.getIndexReader();
+        rawDocs.seek(index.getStartPointer(0));
+        int docID = 0;
+        while (docID < maxDoc) {
+          // read header
+          int base = rawDocs.readVInt();
+          if (base != docID) {
+            throw new CorruptIndexException("invalid state: base=" + base + ", docID=" + docID, rawDocs);
+          }
+          int bufferedDocs = rawDocs.readVInt();
+          
+          // write a new index entry and new header for this chunk.
+          indexWriter.writeIndex(bufferedDocs, vectorsStream.getFilePointer());
+          vectorsStream.writeVInt(docCount); // rebase
+          vectorsStream.writeVInt(bufferedDocs);
+          docID += bufferedDocs;
+          docCount += bufferedDocs;
+          numDocs += bufferedDocs;
+          
+          if (docID > maxDoc) {
+            throw new CorruptIndexException("invalid state: base=" + base + ", count=" + bufferedDocs + ", maxDoc=" + maxDoc, rawDocs);
+          }
+          
+          // copy bytes until the next chunk boundary (or end of chunk data).
+          // using the stored fields index for this isn't the most efficient, but fast enough
+          // and is a source of redundancy for detecting bad things.
+          final long end;
+          if (docID == maxDoc) {
+            end = matchingVectorsReader.getMaxPointer();
+          } else {
+            end = index.getStartPointer(docID);
+          }
+          vectorsStream.copyBytes(rawDocs, end - rawDocs.getFilePointer());
         }
-        addAllDocVectors(vectors, mergeState);
-        ++docCount;
+               
+        if (rawDocs.getFilePointer() != matchingVectorsReader.getMaxPointer()) {
+          throw new CorruptIndexException("invalid state: pos=" + rawDocs.getFilePointer() + ", max=" + matchingVectorsReader.getMaxPointer(), rawDocs);
+        }
+        
+        // since we bulk merged all chunks, we inherit any dirty ones from this segment.
+        numChunks += matchingVectorsReader.getNumChunks();
+        numDirtyChunks += matchingVectorsReader.getNumDirtyChunks();
+      } else {        
+        // naive merge...
+        if (vectorsReader != null) {
+          vectorsReader.checkIntegrity();
+        }
+        for (int i = 0; i < maxDoc; i++) {
+          if (liveDocs != null && liveDocs.get(i) == false) {
+            continue;
+          }
+          Fields vectors;
+          if (vectorsReader == null) {
+            vectors = null;
+          } else {
+            vectors = vectorsReader.get(i);
+          }
+          addAllDocVectors(vectors, mergeState);
+          ++docCount;
+        }
       }
     }
     finish(mergeState.mergeFieldInfos, docCount);
