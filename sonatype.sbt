@@ -11,7 +11,7 @@ pomExtra in Global := {
   <scm>
     <connection>scm:git:github.com/jiemakel/lucene-fstordtermvectorscodec.git</connection>
     <developerConnection>scm:git:git@github.com:jiemakel/lucene-fstordtermvectorscodec.git</developerConnection>
-    <url>github.com/(your repository url)</url>
+    <url>github.com/jiemakel/lucene-fstordtermvectorscodec</url>
   </scm>
   <developers>
     <developer>
