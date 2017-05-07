@@ -22,7 +22,6 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
-import java.util.Map;
 import java.util.NoSuchElementException;
 
 import org.apache.lucene.codecs.CodecUtil;
@@ -37,18 +36,17 @@ import org.apache.lucene.index.SegmentInfo;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.store.AlreadyClosedException;
+import org.apache.lucene.store.ByteArrayDataInput;
 import org.apache.lucene.store.ChecksumIndexInput;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.util.Accountable;
 import org.apache.lucene.util.Accountables;
+import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.BytesRefBuilder;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.LongsRef;
-import org.apache.lucene.util.fst.FST;
-import org.apache.lucene.util.fst.Util;
 import org.apache.lucene.util.packed.BlockPackedReaderIterator;
 import org.apache.lucene.util.packed.PackedInts;
 
@@ -69,7 +67,7 @@ import static org.apache.lucene.codecs.compressing.CompressingTermVectorsWriter.
  * {@link TermVectorsReader} for {@link CompressingTermVectorsFormat}.
  * @lucene.experimental
  */
-public final class OrdTermVectorsReader extends TermVectorsReader implements Closeable {
+public final class CompressingTermVectorsReader extends TermVectorsReader implements Closeable {
 
   private final FieldInfos fieldInfos;
   final CompressingStoredFieldsIndexReader indexReader;
@@ -87,7 +85,7 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
   private final long maxPointer; // end of the data section
 
   // used by clone
-  private OrdTermVectorsReader(OrdTermVectorsReader reader) {
+  private CompressingTermVectorsReader(CompressingTermVectorsReader reader) {
     this.fieldInfos = reader.fieldInfos;
     this.vectorsStream = reader.vectorsStream.clone();
     this.indexReader = reader.indexReader.clone();
@@ -101,17 +99,13 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
     this.numChunks = reader.numChunks;
     this.numDirtyChunks = reader.numDirtyChunks;
     this.maxPointer = reader.maxPointer;
-    this.termDict = reader.termDict;
     this.closed = false;
   }
-  
-  private final Map<FieldInfo,FST<Long>> termDict;
 
   /** Sole constructor. */
-  public OrdTermVectorsReader(Directory d, SegmentInfo si, String segmentSuffix, FieldInfos fn,
-      IOContext context, String formatName, CompressionMode compressionMode, Map<FieldInfo,FST<Long>> termDict) throws IOException {
+  public CompressingTermVectorsReader(Directory d, SegmentInfo si, String segmentSuffix, FieldInfos fn,
+      IOContext context, String formatName, CompressionMode compressionMode) throws IOException {
     this.compressionMode = compressionMode;
-    this.termDict = termDict;
     final String segment = si.name;
     boolean success = false;
     fieldInfos = fn;
@@ -241,7 +235,7 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
 
   @Override
   public TermVectorsReader clone() {
-    return new OrdTermVectorsReader(this);
+    return new CompressingTermVectorsReader(this);
   }
 
   @Override
@@ -349,20 +343,58 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
       totalTerms = sum;
     }
 
-    // terms
-    final long[] terms = new long[totalTerms];
+    // term lengths
+    int docOff = 0, docLen = 0, totalLen;
+    final int[] fieldLengths = new int[numFields];
+    final int[][] prefixLengths = new int[numFields][];
+    final int[][] suffixLengths = new int[numFields][];
     {
       reader.reset(vectorsStream, totalTerms);
-      for (int i = 0, termIndex = 0; i < totalFields; ++i) {
-    	final int termCount = (int) numTerms.get(i);
-    	long curTerm = -1;
-    	for (int j = 0; j < termCount;) {
+      // skip
+      int toSkip = 0;
+      for (int i = 0; i < skip; ++i) {
+        toSkip += numTerms.get(i);
+      }
+      reader.skip(toSkip);
+      // read prefix lengths
+      for (int i = 0; i < numFields; ++i) {
+        final int termCount = (int) numTerms.get(skip + i);
+        final int[] fieldPrefixLengths = new int[termCount];
+        prefixLengths[i] = fieldPrefixLengths;
+        for (int j = 0; j < termCount; ) {
           final LongsRef next = reader.next(termCount - j);
-          j+=next.length;
           for (int k = 0; k < next.length; ++k) {
-            curTerm += next.longs[next.offset + k] + 1;
-            terms[termIndex++] = curTerm;
+            fieldPrefixLengths[j++] = (int) next.longs[next.offset + k];
           }
+        }
+      }
+      reader.skip(totalTerms - reader.ord());
+
+      reader.reset(vectorsStream, totalTerms);
+      // skip
+      toSkip = 0;
+      for (int i = 0; i < skip; ++i) {
+        for (int j = 0; j < numTerms.get(i); ++j) {
+          docOff += reader.next();
+        }
+      }
+      for (int i = 0; i < numFields; ++i) {
+        final int termCount = (int) numTerms.get(skip + i);
+        final int[] fieldSuffixLengths = new int[termCount];
+        suffixLengths[i] = fieldSuffixLengths;
+        for (int j = 0; j < termCount; ) {
+          final LongsRef next = reader.next(termCount - j);
+          for (int k = 0; k < next.length; ++k) {
+            fieldSuffixLengths[j++] = (int) next.longs[next.offset + k];
+          }
+        }
+        fieldLengths[i] = sum(suffixLengths[i]);
+        docLen += fieldLengths[i];
+      }
+      totalLen = docOff + docLen;
+      for (int i = skip + numFields; i < totalFields; ++i) {
+        for (int j = 0; j < numTerms.get(i); ++j) {
+          totalLen += reader.next();
         }
       }
     }
@@ -427,10 +459,16 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
           }
         }
         if (fStartOffsets != null) {
+          final int[] fPrefixLengths = prefixLengths[i];
+          final int[] fSuffixLengths = suffixLengths[i];
+          final int[] fLengths = lengths[i];
           for (int j = 0, end = (int) numTerms.get(skip + i); j < end; ++j) {
             // delta-decode start offsets and  patch lengths using term lengths
+            final int termLength = fPrefixLengths[j] + fSuffixLengths[j];
+            lengths[i][positionIndex[i][j]] += termLength;
             for (int k = positionIndex[i][j] + 1; k < positionIndex[i][j + 1]; ++k) {
               fStartOffsets[k] += fStartOffsets[k - 1];
+              fLengths[k] += termLength;
             }
           }
         }
@@ -518,9 +556,10 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
     }
 
     // decompress data
-    final BytesRef payloadBytes = new BytesRef();
-    decompressor.decompress(vectorsStream, totalPayloadLength, payloadOff, payloadLen, payloadBytes);
-    payloadBytes.length = payloadLen;
+    final BytesRef suffixBytes = new BytesRef();
+    decompressor.decompress(vectorsStream, totalLen + totalPayloadLength, docOff + payloadOff, docLen + payloadLen, suffixBytes);
+    suffixBytes.length = docLen;
+    final BytesRef payloadBytes = new BytesRef(suffixBytes.bytes, suffixBytes.offset + docLen, payloadLen);
 
     final int[] fieldFlags = new int[numFields];
     for (int i = 0; i < numFields; ++i) {
@@ -532,7 +571,6 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
       fieldNumTerms[i] = (int) numTerms.get(skip + i);
     }
 
-    final long[][] fieldTerms = new long[numFields][];
     final int[][] fieldTermFreqs = new int[numFields][];
     {
       int termIdx = 0;
@@ -542,17 +580,19 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
       for (int i = 0; i < numFields; ++i) {
         final int termCount = (int) numTerms.get(skip + i);
         fieldTermFreqs[i] = new int[termCount];
-        fieldTerms[i] = new long[termCount];
         for (int j = 0; j < termCount; ++j) {
-          fieldTermFreqs[i][j] = termFreqs[termIdx];
-          fieldTerms[i][j] = terms[termIdx++];
+          fieldTermFreqs[i][j] = termFreqs[termIdx++];
         }
       }
     }
 
-    return new TVFields(fieldNums, fieldFlags, fieldNumOffs, fieldNumTerms, fieldTerms, fieldTermFreqs,
+    assert sum(fieldLengths) == docLen : sum(fieldLengths) + " != " + docLen;
+
+    return new TVFields(fieldNums, fieldFlags, fieldNumOffs, fieldNumTerms, fieldLengths,
+        prefixLengths, suffixLengths, fieldTermFreqs,
         positionIndex, positions, startOffsets, lengths,
-        payloadBytes, payloadIndex);
+        payloadBytes, payloadIndex,
+        suffixBytes);
   }
 
   // field -> term index -> position index
@@ -616,19 +656,22 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
 
   private class TVFields extends Fields {
 
-    private final int[] fieldNums, fieldFlags, fieldNumOffs, numTerms;
-    private final int[][] termFreqs, positionIndex, positions, startOffsets, lengths, payloadIndex;
-    private final long[][] terms;
-    private final BytesRef payloadBytes;
+    private final int[] fieldNums, fieldFlags, fieldNumOffs, numTerms, fieldLengths;
+    private final int[][] prefixLengths, suffixLengths, termFreqs, positionIndex, positions, startOffsets, lengths, payloadIndex;
+    private final BytesRef suffixBytes, payloadBytes;
 
-    public TVFields(int[] fieldNums, int[] fieldFlags, int[] fieldNumOffs, int[] numTerms, long[][] terms, int[][] termFreqs,
+    public TVFields(int[] fieldNums, int[] fieldFlags, int[] fieldNumOffs, int[] numTerms, int[] fieldLengths,
+        int[][] prefixLengths, int[][] suffixLengths, int[][] termFreqs,
         int[][] positionIndex, int[][] positions, int[][] startOffsets, int[][] lengths,
-        BytesRef payloadBytes, int[][] payloadIndex) {
+        BytesRef payloadBytes, int[][] payloadIndex,
+        BytesRef suffixBytes) {
       this.fieldNums = fieldNums;
       this.fieldFlags = fieldFlags;
       this.fieldNumOffs = fieldNumOffs;
       this.numTerms = numTerms;
-      this.terms = terms;
+      this.fieldLengths = fieldLengths;
+      this.prefixLengths = prefixLengths;
+      this.suffixLengths = suffixLengths;
       this.termFreqs = termFreqs;
       this.positionIndex = positionIndex;
       this.positions = positions;
@@ -636,6 +679,7 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
       this.lengths = lengths;
       this.payloadBytes = payloadBytes;
       this.payloadIndex = payloadIndex;
+      this.suffixBytes = suffixBytes;
     }
 
     @Override
@@ -679,10 +723,21 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
         // no term
         return null;
       }
+      int fieldOff = 0, fieldLen = -1;
+      for (int i = 0; i < fieldNumOffs.length; ++i) {
+        if (i < idx) {
+          fieldOff += fieldLengths[i];
+        } else {
+          fieldLen = fieldLengths[i];
+          break;
+        }
+      }
+      assert fieldLen >= 0;
       return new TVTerms(numTerms[idx], fieldFlags[idx],
-          terms[idx], termFreqs[idx],
+          prefixLengths[idx], suffixLengths[idx], termFreqs[idx],
           positionIndex[idx], positions[idx], startOffsets[idx], lengths[idx],
-          payloadIndex[idx], payloadBytes, termDict.get(fieldInfo));
+          payloadIndex[idx], payloadBytes,
+          new BytesRef(suffixBytes.bytes, suffixBytes.offset + fieldOff, fieldLen));
     }
 
     @Override
@@ -695,17 +750,17 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
   private class TVTerms extends Terms {
 
     private final int numTerms, flags;
-    private final long[] terms;
-    private final int[] termFreqs, positionIndex, positions, startOffsets, lengths, payloadIndex;
-    private final BytesRef payloadBytes;
-    private final FST<Long> termDict;
+    private final int[] prefixLengths, suffixLengths, termFreqs, positionIndex, positions, startOffsets, lengths, payloadIndex;
+    private final BytesRef termBytes, payloadBytes;
 
-    TVTerms(int numTerms, int flags, long[] terms, int[] termFreqs,
+    TVTerms(int numTerms, int flags, int[] prefixLengths, int[] suffixLengths, int[] termFreqs,
         int[] positionIndex, int[] positions, int[] startOffsets, int[] lengths,
-        int[] payloadIndex, BytesRef payloadBytes, FST<Long> termDict) {
+        int[] payloadIndex, BytesRef payloadBytes,
+        BytesRef termBytes) {
       this.numTerms = numTerms;
       this.flags = flags;
-      this.terms = terms;
+      this.prefixLengths = prefixLengths;
+      this.suffixLengths = suffixLengths;
       this.termFreqs = termFreqs;
       this.positionIndex = positionIndex;
       this.positions = positions;
@@ -713,14 +768,15 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
       this.lengths = lengths;
       this.payloadIndex = payloadIndex;
       this.payloadBytes = payloadBytes;
-      this.termDict = termDict;
+      this.termBytes = termBytes;
     }
 
     @Override
-    public TVTermsEnum iterator() throws IOException {
+    public TermsEnum iterator() throws IOException {
       TVTermsEnum termsEnum = new TVTermsEnum();
-      termsEnum.reset(numTerms, flags, terms, termFreqs, positionIndex, positions, startOffsets, lengths,
-          payloadIndex, payloadBytes, termDict);
+      termsEnum.reset(numTerms, flags, prefixLengths, suffixLengths, termFreqs, positionIndex, positions, startOffsets, lengths,
+          payloadIndex, payloadBytes,
+          new ByteArrayDataInput(termBytes.bytes, termBytes.offset, termBytes.length));
       return termsEnum;
     }
 
@@ -766,21 +822,23 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
 
   }
 
-  public static class TVTermsEnum extends TermsEnum {
-	  
-    private int numTerms, ord;
-    private long[] terms;
-    private int[] termFreqs, positionIndex, positions, startOffsets, lengths, payloadIndex;
+  private static class TVTermsEnum extends TermsEnum {
+
+    private int numTerms, startPos, ord;
+    private int[] prefixLengths, suffixLengths, termFreqs, positionIndex, positions, startOffsets, lengths, payloadIndex;
+    private ByteArrayDataInput in;
     private BytesRef payloads;
-    private FST<Long> termDict;
-    private BytesRefBuilder brb = new BytesRefBuilder();
-    private BytesRef term;
+    private final BytesRef term;
 
+    private TVTermsEnum() {
+      term = new BytesRef(16);
+    }
 
-    void reset(int numTerms, int flags, long[] terms, int[] termFreqs, int[] positionIndex, int[] positions, int[] startOffsets, int[] lengths,
-        int[] payloadIndex, BytesRef payloads, FST<Long> termDict) {
+    void reset(int numTerms, int flags, int[] prefixLengths, int[] suffixLengths, int[] termFreqs, int[] positionIndex, int[] positions, int[] startOffsets, int[] lengths,
+        int[] payloadIndex, BytesRef payloads, ByteArrayDataInput in) {
       this.numTerms = numTerms;
-      this.terms = terms;
+      this.prefixLengths = prefixLengths;
+      this.suffixLengths = suffixLengths;
       this.termFreqs = termFreqs;
       this.positionIndex = positionIndex;
       this.positions = positions;
@@ -788,11 +846,14 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
       this.lengths = lengths;
       this.payloadIndex = payloadIndex;
       this.payloads = payloads;
-      this.termDict = termDict;
+      this.in = in;
+      startPos = in.getPosition();
       reset();
     }
 
     void reset() {
+      term.length = 0;
+      in.setPosition(startPos);
       ord = -1;
     }
 
@@ -804,25 +865,16 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
         assert ord < numTerms;
         ++ord;
       }
-      term = Util.toBytesRef(Util.getByOutput(termDict, terms[ord]), brb);
+
       // read term
-/*      term.offset = 0;
-      term.length = Long.BYTES;
+      term.offset = 0;
+      term.length = prefixLengths[ord] + suffixLengths[ord];
       if (term.length > term.bytes.length) {
         term.bytes = ArrayUtil.grow(term.bytes, term.length);
       }
-      NumericUtils.longToSortableBytes(terms[ord], term.bytes, 0);*/
+      in.readBytes(term.bytes, prefixLengths[ord], suffixLengths[ord]);
+
       return term;
-    }
-    
-    public long nextOrd() throws IOException {
-	  if (ord == numTerms - 1) {
-	    return -1;
-	  } else {
-	    assert ord < numTerms;
-	    ++ord;
-	  }
-	  return terms[ord];
     }
 
     @Override
@@ -863,7 +915,7 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
 
     @Override
     public long ord() throws IOException {
-      return terms[ord];
+      throw new UnsupportedOperationException();
     }
 
     @Override
@@ -1022,6 +1074,14 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
     public long cost() {
       return 1;
     }
+  }
+
+  private static int sum(int[] arr) {
+    int sum = 0;
+    for (int el : arr) {
+      sum += el;
+    }
+    return sum;
   }
 
   @Override

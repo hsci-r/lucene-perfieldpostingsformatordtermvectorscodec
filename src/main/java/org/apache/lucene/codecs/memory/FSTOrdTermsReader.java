@@ -70,13 +70,13 @@ import org.apache.lucene.util.fst.Util;
  *
  * @lucene.experimental
  */
-public class FSTOrdOrdsExposingTermsReader extends FieldsProducer {
+public class FSTOrdTermsReader extends FieldsProducer {
   static final int INTERVAL = FSTOrdTermsWriter.SKIP_INTERVAL;
   final TreeMap<String, TermsReader> fields = new TreeMap<>();
   final PostingsReaderBase postingsReader;
   //static final boolean TEST = false;
 
-  public FSTOrdOrdsExposingTermsReader(SegmentReadState state, PostingsReaderBase postingsReader) throws IOException {
+  public FSTOrdTermsReader(SegmentReadState state, PostingsReaderBase postingsReader) throws IOException {
     final String termsIndexFileName = IndexFileNames.segmentFileName(state.segmentInfo.name, state.segmentSuffix, FSTOrdTermsWriter.TERMS_INDEX_EXTENSION);
     final String termsBlockFileName = IndexFileNames.segmentFileName(state.segmentInfo.name, state.segmentSuffix, FSTOrdTermsWriter.TERMS_BLOCK_EXTENSION);
 
@@ -443,7 +443,7 @@ public class FSTOrdOrdsExposingTermsReader extends FieldsProducer {
 
       @Override
       public long ord() {
-    	return ord;
+        throw new UnsupportedOperationException();
       }
     }
 
@@ -506,17 +506,6 @@ public class FSTOrdOrdsExposingTermsReader extends FieldsProducer {
       public boolean seekExact(BytesRef target) throws IOException {
         updateEnum(fstEnum.seekExact(target));
         return term != null;
-      }
-      
-      private final BytesRefBuilder brb = new BytesRefBuilder();
-      
-      @Override
-      public void seekExact(long ord) throws IOException {
-    	this.ord = ord;
-    	term = Util.toBytesRef(Util.getByOutput(index, ord),brb);
-    	decodeStats();
-    	decoded = false;
-    	seekPending = false;
       }
 
       @Override

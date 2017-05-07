@@ -38,6 +38,7 @@ import org.apache.lucene.index.MergeState;
 import org.apache.lucene.index.SegmentInfo;
 import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.store.GrowableByteArrayDataOutput;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.IndexOutput;
@@ -139,7 +140,7 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
   /** a pending field */
   private class FieldData {
     final boolean hasPositions, hasOffsets, hasPayloads;
-    final int fieldNum, flags, maxNumTerms;
+    final int fieldNum, flags;
     final int[] freqs, prefixLengths, suffixLengths;
     final int posStart, offStart, payStart;
     int totalPositions;
@@ -147,7 +148,6 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
     FieldData(int fieldNum, int numTerms, boolean positions, boolean offsets, boolean payloads,
         int posStart, int offStart, int payStart) {
       this.fieldNum = fieldNum;
-      this.maxNumTerms = numTerms;
       this.hasPositions = positions;
       this.hasOffsets = offsets;
       this.hasPayloads = payloads;
@@ -273,8 +273,8 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
   @Override
   public void finishDocument() throws IOException {
     // append the payload bytes of the doc after its terms
-    termSuffixes.writeBytes(payloadBytes.bytes, payloadBytes.length);
-    payloadBytes.length = 0;
+    termSuffixes.writeBytes(payloadBytes.getBytes(), payloadBytes.getPosition());
+    payloadBytes.reset();
     ++numDocs;
     if (triggerFlush()) {
       flush();
@@ -303,16 +303,16 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
     	filterCurrentTerm = true;
     } else {
     	filterCurrentTerm = false;
-	    final int prefix = StringHelper.bytesDifference(lastTerm, term);
-	    curField.addTerm(freq, prefix, term.length - prefix);
-	    termSuffixes.writeBytes(term.bytes, term.offset + prefix, term.length - prefix);
-	    // copy last term
-	    if (lastTerm.bytes.length < term.length) {
-	      lastTerm.bytes = new byte[ArrayUtil.oversize(term.length, 1)];
-	    }
-	    lastTerm.offset = 0;
-	    lastTerm.length = term.length;
-	    System.arraycopy(term.bytes, term.offset, lastTerm.bytes, 0, term.length);
+        final int prefix = StringHelper.bytesDifference(lastTerm, term);
+        curField.addTerm(freq, prefix, term.length - prefix);
+        termSuffixes.writeBytes(term.bytes, term.offset + prefix, term.length - prefix);
+        // copy last term
+        if (lastTerm.bytes.length < term.length) {
+          lastTerm.bytes = new byte[ArrayUtil.oversize(term.length, 1)];
+        }
+        lastTerm.offset = 0;
+        lastTerm.length = term.length;
+        System.arraycopy(term.bytes, term.offset, lastTerm.bytes, 0, term.length);
     }
   }
 
@@ -321,15 +321,15 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
       BytesRef payload) throws IOException {
     assert curField.flags != 0;
     if (!filterCurrentTerm) {
-	    curField.addPosition(position, startOffset, endOffset - startOffset, payload == null ? 0 : payload.length);
-	    if (curField.hasPayloads && payload != null) {
-	      payloadBytes.writeBytes(payload.bytes, payload.offset, payload.length);
+        curField.addPosition(position, startOffset, endOffset - startOffset, payload == null ? 0 : payload.length);
+        if (curField.hasPayloads && payload != null) {
+          payloadBytes.writeBytes(payload.bytes, payload.offset, payload.length);
 	    }
     }
   }
 
   private boolean triggerFlush() {
-    return termSuffixes.length >= chunkSize
+	return termSuffixes.getPosition() >= chunkSize
         || pendingDocs.size() >= MAX_DOCUMENTS_PER_CHUNK;
   }
 
@@ -368,14 +368,14 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
       flushPayloadLengths();
 
       // compress terms and payloads and write them to the output
-      compressor.compress(termSuffixes.bytes, 0, termSuffixes.length, vectorsStream);
+      compressor.compress(termSuffixes.getBytes(), 0, termSuffixes.getPosition(), vectorsStream);
     }
 
     // reset
     pendingDocs.clear();
     curDoc = null;
     curField = null;
-    termSuffixes.length = 0;
+    termSuffixes.reset();
     numChunks++;
   }
 
@@ -743,7 +743,7 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
 
   @Override
   public int merge(MergeState mergeState) throws IOException {
-    if (mergeState.segmentInfo.getIndexSort() != null) {
+    if (mergeState.needsIndexSort) {
       // TODO: can we gain back some optos even if index is sorted?  E.g. if sort results in large chunks of contiguous docs from one sub
       // being copied over...?
       return super.merge(mergeState);
