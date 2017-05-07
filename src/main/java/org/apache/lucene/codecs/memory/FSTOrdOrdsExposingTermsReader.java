@@ -42,6 +42,7 @@ import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.TermState;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
+import org.apache.lucene.index.TermsEnum.SeekStatus;
 import org.apache.lucene.store.ByteArrayDataInput;
 import org.apache.lucene.store.ChecksumIndexInput;
 import org.apache.lucene.store.IndexInput;
@@ -565,7 +566,7 @@ public class FSTOrdOrdsExposingTermsReader extends FieldsProducer {
       /* query automaton to intersect with */
       final ByteRunAutomaton fsa;
 
-      private final class Frame {
+      final class Frame {
         /* fst stats */
         FST.Arc<Long> arc;
 
