@@ -554,7 +554,7 @@ public class FSTOrdTermsReader extends FieldsProducer {
       /* query automaton to intersect with */
       final ByteRunAutomaton fsa;
 
-      private final class Frame {
+      final class Frame {
         /* fst stats */
         FST.Arc<Long> arc;
 
