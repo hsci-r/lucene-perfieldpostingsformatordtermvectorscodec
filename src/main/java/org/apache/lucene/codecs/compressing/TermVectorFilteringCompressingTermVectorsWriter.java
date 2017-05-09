@@ -24,7 +24,7 @@ import java.util.Deque;
 import java.util.Iterator;
 import java.util.SortedSet;
 import java.util.TreeSet;
-import java.util.function.Predicate;
+import java.util.function.BiPredicate;
 
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.TermVectorsReader;
@@ -145,16 +145,16 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
     final int posStart, offStart, payStart;
     int totalPositions;
     int ord;
-    FieldData(int fieldNum, int numTerms, boolean positions, boolean offsets, boolean payloads,
+    FieldData(int fieldNum, int maxNumTerms, boolean positions, boolean offsets, boolean payloads,
         int posStart, int offStart, int payStart) {
       this.fieldNum = fieldNum;
       this.hasPositions = positions;
       this.hasOffsets = offsets;
       this.hasPayloads = payloads;
       this.flags = (positions ? POSITIONS : 0) | (offsets ? OFFSETS : 0) | (payloads ? PAYLOADS : 0);
-      this.freqs = new int[numTerms];
-      this.prefixLengths = new int[numTerms];
-      this.suffixLengths = new int[numTerms];
+      this.freqs = new int[maxNumTerms];
+      this.prefixLengths = new int[maxNumTerms];
+      this.suffixLengths = new int[maxNumTerms];
       this.posStart = posStart;
       this.offStart = offStart;
       this.payStart = payStart;
@@ -196,6 +196,7 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
   private int numDocs; // total number of docs seen
   private final Deque<DocData> pendingDocs; // pending docs
   private DocData curDoc; // current document
+  private FieldInfo curFieldInfo;
   private FieldData curField; // current field
   private final BytesRef lastTerm;
   private int[] positionsBuf, startOffsetsBuf, lengthsBuf, payloadLengthsBuf;
@@ -203,11 +204,11 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
   private final GrowableByteArrayDataOutput payloadBytes; // buffered term payloads
   private final BlockPackedWriter writer;
   
-  private final Predicate<BytesRef> termVectorFilter;
+  private final BiPredicate<FieldInfo,BytesRef> termVectorFilter;
 
   /** Sole constructor. */
   public TermVectorFilteringCompressingTermVectorsWriter(Directory directory, SegmentInfo si, String segmentSuffix, IOContext context,
-      String formatName, CompressionMode compressionMode, int chunkSize, int blockSize, Predicate<BytesRef> termVectorFilter) throws IOException {
+      String formatName, CompressionMode compressionMode, int chunkSize, int blockSize, BiPredicate<FieldInfo,BytesRef> termVectorFilter) throws IOException {
     assert directory != null;
     this.segment = si.name;
     this.compressionMode = compressionMode;
@@ -285,6 +286,7 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
   @Override
   public void startField(FieldInfo info, int numTerms, boolean positions,
       boolean offsets, boolean payloads) throws IOException {
+	curFieldInfo = info;
     curField = curDoc.addField(info.number, numTerms, positions, offsets, payloads);
     lastTerm.length = 0;
   }
@@ -292,6 +294,7 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
   @Override
   public void finishField() throws IOException {
     curField = null;
+    curFieldInfo = null;
   }
   
   private boolean filterCurrentTerm = false;
@@ -299,7 +302,7 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
   @Override
   public void startTerm(BytesRef term, int freq) throws IOException {
     assert freq >= 1;
-    if (termVectorFilter != null && !termVectorFilter.test(term)) {
+    if (termVectorFilter != null && !termVectorFilter.test(curFieldInfo, term)) {
     	filterCurrentTerm = true;
     } else {
     	filterCurrentTerm = false;
