@@ -3,13 +3,14 @@ import org.apache.lucene.codecs.FilterCodec
 import org.apache.lucene.codecs.TermVectorsFormat
 import org.apache.lucene.codecs.compressing.TermVectorFilteringCompressingTermVectorsWriter
 import org.apache.lucene.codecs.compressing.CompressionMode
-import java.util.function.Predicate
+import java.util.function.BiPredicate
+import org.apache.lucene.index.FieldInfo
 import org.apache.lucene.util.BytesRef
 
 
 class TermVectorFilteringLucene62Codec extends FilterCodec("Lucene62",new Lucene62Codec()) {
 
-  var termVectorFilter: Predicate[BytesRef] = null
+  var termVectorFilter: BiPredicate[FieldInfo,BytesRef] = null
 
   override def termVectorsFormat = new TermVectorsFormat {
      override def vectorsReader(directory: org.apache.lucene.store.Directory,segmentInfo: org.apache.lucene.index.SegmentInfo,fieldInfos: org.apache.lucene.index.FieldInfos,context: org.apache.lucene.store.IOContext): org.apache.lucene.codecs.TermVectorsReader = {
