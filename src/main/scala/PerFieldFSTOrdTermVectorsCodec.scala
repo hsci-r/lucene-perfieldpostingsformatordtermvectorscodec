@@ -33,12 +33,14 @@ import java.util.function.Predicate
 import org.apache.lucene.codecs.perfield.PerFieldPostingsFormat
 import org.apache.lucene.codecs.lucene50.Lucene50PostingsFormat
 
-class FSTOrdTermVectorsCodec extends FilterCodec("FSTOrdTermVectors62",new Lucene62Codec(Mode.BEST_COMPRESSION)) {
+class PerFieldFSTOrdTermVectorsCodec extends FilterCodec("PerFieldFSTOrdTermVectors62",new Lucene62Codec(Mode.BEST_COMPRESSION)) {
   
   private val termMap = new java.util.HashMap[SegmentInfo,java.util.Map[FieldInfo,FST[java.lang.Long]]]
   
+  var termVectorFields: Set[String] = Set.empty
   var termVectorFilter: Predicate[BytesRef] = null
   
+  private val otherPostingsFormat = new Lucene50PostingsFormat() 
   private val termVectorPostingsFormat = new PostingsFormat("FSTOrd50") {
     override def fieldsConsumer(state: org.apache.lucene.index.SegmentWriteState): org.apache.lucene.codecs.FieldsConsumer = {
       val postingsWriter = new Lucene50PostingsWriter(state)
@@ -66,7 +68,11 @@ class FSTOrdTermVectorsCodec extends FilterCodec("FSTOrdTermVectors62",new Lucen
     }
   }
   
-  override def postingsFormat() = termVectorPostingsFormat 
+  private val pfPostingsFormat = new PerFieldPostingsFormat() {
+    override def getPostingsFormatForField(field: String): PostingsFormat = if (!termVectorFields.contains(field)) otherPostingsFormat else termVectorPostingsFormat
+  }
+  
+  override def postingsFormat() = pfPostingsFormat 
     
   private val ordTermVectorsFormat = new TermVectorsFormat {
      override def vectorsReader(directory: org.apache.lucene.store.Directory,segmentInfo: org.apache.lucene.index.SegmentInfo,fieldInfos: org.apache.lucene.index.FieldInfos,context: org.apache.lucene.store.IOContext): org.apache.lucene.codecs.TermVectorsReader = {

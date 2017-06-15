@@ -2,14 +2,14 @@ name := """lucene-fstordtermvectorscodec"""
 
 organization := "fi.seco"
 
-version := "1.3.0"
+version := "1.4.0"
 
 scalaVersion := "2.12.1"
 
 crossScalaVersions := Seq("2.10.6", "2.11.8", "2.12.1")
 
 libraryDependencies ++= Seq(
-  "org.apache.lucene" % "lucene-codecs" % "6.5.1"
+  "org.apache.lucene" % "lucene-codecs" % "6.6.0"
 )
 
 publishTo := {
