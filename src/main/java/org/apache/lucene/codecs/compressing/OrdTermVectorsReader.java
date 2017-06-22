@@ -22,10 +22,10 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
-import java.util.Map;
 import java.util.NoSuchElementException;
 
 import org.apache.lucene.codecs.CodecUtil;
+import org.apache.lucene.codecs.PostingsFormat;
 import org.apache.lucene.codecs.TermVectorsReader;
 import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.PostingsEnum;
@@ -34,6 +34,7 @@ import org.apache.lucene.index.FieldInfos;
 import org.apache.lucene.index.Fields;
 import org.apache.lucene.index.IndexFileNames;
 import org.apache.lucene.index.SegmentInfo;
+import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.index.TermsEnum.SeekStatus;
@@ -45,11 +46,8 @@ import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.util.Accountable;
 import org.apache.lucene.util.Accountables;
 import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.BytesRefBuilder;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.LongsRef;
-import org.apache.lucene.util.fst.FST;
-import org.apache.lucene.util.fst.Util;
 import org.apache.lucene.util.packed.BlockPackedReaderIterator;
 import org.apache.lucene.util.packed.PackedInts;
 
@@ -102,17 +100,26 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
     this.numChunks = reader.numChunks;
     this.numDirtyChunks = reader.numDirtyChunks;
     this.maxPointer = reader.maxPointer;
-    this.termDict = reader.termDict;
+    this.directory = reader.directory;
+    this.si = reader.si;
+    this.context = reader.context;
+    this.postingsFormat = reader.postingsFormat;
     this.closed = false;
   }
   
-  private final Map<FieldInfo,FST<Long>> termDict;
+  private final Directory directory;
+  private final IOContext context;
+  private final SegmentInfo si;
+  private final PostingsFormat postingsFormat;
 
   /** Sole constructor. */
   public OrdTermVectorsReader(Directory d, SegmentInfo si, String segmentSuffix, FieldInfos fn,
-      IOContext context, String formatName, CompressionMode compressionMode, Map<FieldInfo,FST<Long>> termDict) throws IOException {
+      IOContext context, String formatName, CompressionMode compressionMode, PostingsFormat postingsFormat) throws IOException {
+	this.directory = d;
+	this.si = si;
+	this.context = context;
     this.compressionMode = compressionMode;
-    this.termDict = termDict;
+    this.postingsFormat = postingsFormat;
     final String segment = si.name;
     boolean success = false;
     fieldInfos = fn;
@@ -683,7 +690,7 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
       return new TVTerms(numTerms[idx], fieldFlags[idx],
           terms[idx], termFreqs[idx],
           positionIndex[idx], positions[idx], startOffsets[idx], lengths[idx],
-          payloadIndex[idx], payloadBytes, termDict.get(fieldInfo));
+          payloadIndex[idx], payloadBytes, postingsFormat.fieldsProducer(new SegmentReadState(directory, si, fieldInfos, context)).terms(fieldInfos.fieldInfo(idx).name).iterator());
     }
 
     @Override
@@ -699,11 +706,11 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
     private final long[] terms;
     private final int[] termFreqs, positionIndex, positions, startOffsets, lengths, payloadIndex;
     private final BytesRef payloadBytes;
-    private final FST<Long> termDict;
+    private final TermsEnum termDict;
 
     TVTerms(int numTerms, int flags, long[] terms, int[] termFreqs,
         int[] positionIndex, int[] positions, int[] startOffsets, int[] lengths,
-        int[] payloadIndex, BytesRef payloadBytes, FST<Long> termDict) {
+        int[] payloadIndex, BytesRef payloadBytes, TermsEnum termDict) {
       this.numTerms = numTerms;
       this.flags = flags;
       this.terms = terms;
@@ -773,13 +780,12 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
     private long[] terms;
     private int[] termFreqs, positionIndex, positions, startOffsets, lengths, payloadIndex;
     private BytesRef payloads;
-    private FST<Long> termDict;
-    private BytesRefBuilder brb = new BytesRefBuilder();
+    private TermsEnum termDict;
     private BytesRef term;
 
 
     void reset(int numTerms, int flags, long[] terms, int[] termFreqs, int[] positionIndex, int[] positions, int[] startOffsets, int[] lengths,
-        int[] payloadIndex, BytesRef payloads, FST<Long> termDict) {
+        int[] payloadIndex, BytesRef payloads, TermsEnum termDict) {
       this.numTerms = numTerms;
       this.terms = terms;
       this.termFreqs = termFreqs;
@@ -805,15 +811,8 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
         assert ord < numTerms;
         ++ord;
       }
-      term = Util.toBytesRef(Util.getByOutput(termDict, terms[ord]), brb);
-      // read term
-/*      term.offset = 0;
-      term.length = Long.BYTES;
-      if (term.length > term.bytes.length) {
-        term.bytes = ArrayUtil.grow(term.bytes, term.length);
-      }
-      NumericUtils.longToSortableBytes(terms[ord], term.bytes, 0);*/
-      return term;
+      termDict.seekExact(terms[ord]);
+      return termDict.term();
     }
     
     public long nextOrd() throws IOException {

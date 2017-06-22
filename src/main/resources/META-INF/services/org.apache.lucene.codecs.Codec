@@ -1,2 +1,1 @@
-fi.seco.lucene.FSTOrdTermVectorsCodec
-fi.seco.lucene.PerFieldFSTOrdTermVectorsCodec
+fi.seco.lucene.PerFieldPostingsFormatOrdTermVectorsCodec

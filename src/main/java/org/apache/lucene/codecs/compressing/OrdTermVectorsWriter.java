@@ -28,6 +28,7 @@ import java.util.TreeSet;
 import java.util.function.Predicate;
 
 import org.apache.lucene.codecs.CodecUtil;
+import org.apache.lucene.codecs.PostingsFormat;
 import org.apache.lucene.codecs.TermVectorsReader;
 import org.apache.lucene.codecs.TermVectorsWriter;
 import org.apache.lucene.index.CorruptIndexException;
@@ -37,6 +38,8 @@ import org.apache.lucene.index.Fields;
 import org.apache.lucene.index.IndexFileNames;
 import org.apache.lucene.index.MergeState;
 import org.apache.lucene.index.SegmentInfo;
+import org.apache.lucene.index.SegmentReadState;
+import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.GrowableByteArrayDataOutput;
@@ -202,18 +205,25 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
   private final GrowableByteArrayDataOutput payloadBytes; // buffered term payloads
   private final BlockPackedWriter writer;
   
-  private final Map<FieldInfo,FST<Long>> termDict;
+  private final PostingsFormat postingsFormat;
   
   private final Predicate<BytesRef> termVectorFilter;
+  
+  private final Directory directory;
+  private final IOContext context;
+  private final SegmentInfo si;
 
   /** Sole constructor. */
   public OrdTermVectorsWriter(Directory directory, SegmentInfo si, String segmentSuffix, IOContext context,
-      String formatName, CompressionMode compressionMode, int chunkSize, int blockSize, Map<FieldInfo,FST<Long>> termDict, Predicate<BytesRef> termVectorFilter) throws IOException {
+      String formatName, CompressionMode compressionMode, int chunkSize, int blockSize, PostingsFormat postingsFormat, Predicate<BytesRef> termVectorFilter) throws IOException {
+    this.directory = directory;
+    this.si = si;
+    this.context = context;
     assert directory != null;
     this.segment = si.name;
     this.compressor = compressionMode.newCompressor();
     this.chunkSize = chunkSize;
-    this.termDict = termDict;
+    this.postingsFormat = postingsFormat;
     this.termVectorFilter = termVectorFilter;
 
     numDocs = 0;
@@ -279,18 +289,19 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
     curDoc = null;
   }
 
-  private BytesRefFSTEnum<Long> curTermDict;
+  private TermsEnum curTermDict;
   
   @Override
   public void startField(FieldInfo info, int numTerms, boolean positions,
       boolean offsets, boolean payloads) throws IOException {
     curField = curDoc.addField(info.number, numTerms, positions, offsets, payloads);
-    curTermDict = new BytesRefFSTEnum<>(termDict.get(info));
+    curTermDict = postingsFormat.fieldsProducer(new SegmentReadState(directory, si, new FieldInfos(new FieldInfo[] { info }), context)).terms(info.name).iterator();
   }
 
   @Override
   public void finishField() throws IOException {
     curField = null;
+    curTermDict = null;
   }
   
   private boolean filterCurrentTerm = false;
@@ -302,7 +313,8 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
 		filterCurrentTerm = true;
 	} else {
 		filterCurrentTerm = false;
-	    curField.addTerm(freq, curTermDict.seekExact(term).output);
+		curTermDict.seekExact(term);
+	    curField.addTerm(freq, curTermDict.ord());
 	}
   }
 

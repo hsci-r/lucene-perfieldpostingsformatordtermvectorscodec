@@ -7,7 +7,6 @@ import java.util.function.BiPredicate
 import org.apache.lucene.index.FieldInfo
 import org.apache.lucene.util.BytesRef
 
-
 class TermVectorFilteringLucene62Codec extends FilterCodec("Lucene62",new Lucene62Codec()) {
 
   var termVectorFilter: BiPredicate[FieldInfo,BytesRef] = null
