@@ -55,9 +55,11 @@ class TestPerFieldPostingsFormatOrdTermVectorsCodec {
     var w = new IndexWriter(dir, iwc)
     var d = new Document()
     d.add(new Field("test","x testing 1 2 3", ft))
+    d.add(new Field("test2","x", ft))
     w.addDocument(d)
     d = new Document()
     d.add(new Field("test","y testing 3 4 5", ft))
+    d.add(new Field("test2","x", ft))
     w.addDocument(d)
     w.close()
     var s = new IndexSearcher(DirectoryReader.open(dir))
@@ -80,7 +82,7 @@ class TestPerFieldPostingsFormatOrdTermVectorsCodec {
     assertThat(tvi.next().utf8ToString(), equalTo("y"))
     assertThat(tvi.next(), nullValue)
     iwc = new IndexWriterConfig()
-    fc.perFieldPostingsFormat = Map("test" -> pf)
+    fc.perFieldPostingsFormat = Map("test" -> pf, "test2" -> pf)
     iwc.setCodec(fc)
     iwc.setMergePolicy(new UpgradeIndexMergePolicy(iwc.getMergePolicy) {
       override protected def shouldUpgradeSegment(si: SegmentCommitInfo): Boolean = si.info.getCodec.getName != fc.getName

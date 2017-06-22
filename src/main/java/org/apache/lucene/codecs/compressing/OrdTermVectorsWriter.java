@@ -212,6 +212,7 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
   private final Directory directory;
   private final IOContext context;
   private final SegmentInfo si;
+  private FieldInfos fi;
 
   /** Sole constructor. */
   public OrdTermVectorsWriter(Directory directory, SegmentInfo si, String segmentSuffix, IOContext context,
@@ -295,7 +296,7 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
   public void startField(FieldInfo info, int numTerms, boolean positions,
       boolean offsets, boolean payloads) throws IOException {
     curField = curDoc.addField(info.number, numTerms, positions, offsets, payloads);
-    curTermDict = postingsFormat.fieldsProducer(new SegmentReadState(directory, si, new FieldInfos(new FieldInfo[] { info }), context)).terms(info.name).iterator();
+    curTermDict = postingsFormat.fieldsProducer(new SegmentReadState(directory, si, fi, context)).terms(info.name).iterator();
   }
 
   @Override
@@ -739,6 +740,7 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
 
   @Override
   public int merge(MergeState mergeState) throws IOException {
+	fi = mergeState.mergeFieldInfos;
     if (mergeState.needsIndexSort) {
       // TODO: can we gain back some optos even if index is sorted?  E.g. if sort results in large chunks of contiguous docs from one sub
       // being copied over...?
