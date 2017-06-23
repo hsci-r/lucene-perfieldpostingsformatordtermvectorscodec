@@ -39,6 +39,7 @@ import org.apache.lucene.index.IndexFileNames;
 import org.apache.lucene.index.MergeState;
 import org.apache.lucene.index.SegmentInfo;
 import org.apache.lucene.index.SegmentReadState;
+import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.Directory;
@@ -736,7 +737,8 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
   @Override
   public int merge(MergeState mergeState) throws IOException {
 	for (FieldInfo f : mergeState.mergeFieldInfos) {
-      termDicts.put(f.name, postingsFormat.fieldsProducer(new SegmentReadState(directory, si, mergeState.mergeFieldInfos, context)).terms(f.name).iterator());
+ 	  Terms terms = postingsFormat.fieldsProducer(new SegmentReadState(directory, si, mergeState.mergeFieldInfos, context)).terms(f.name);
+ 	  if (terms != null) termDicts.put(f.name, terms.iterator());
 	}
     if (mergeState.needsIndexSort) {
       // TODO: can we gain back some optos even if index is sorted?  E.g. if sort results in large chunks of contiguous docs from one sub
