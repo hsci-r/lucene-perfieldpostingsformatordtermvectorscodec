@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.SortedSet;
@@ -31,7 +32,6 @@ import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.PostingsFormat;
 import org.apache.lucene.codecs.TermVectorsReader;
 import org.apache.lucene.codecs.TermVectorsWriter;
-import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.FieldInfos;
 import org.apache.lucene.index.Fields;
@@ -44,15 +44,11 @@ import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.GrowableByteArrayDataOutput;
 import org.apache.lucene.store.IOContext;
-import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.IOUtils;
-import org.apache.lucene.util.StringHelper;
-import org.apache.lucene.util.fst.BytesRefFSTEnum;
-import org.apache.lucene.util.fst.FST;
 import org.apache.lucene.util.packed.BlockPackedWriter;
 import org.apache.lucene.util.packed.PackedInts;
 
@@ -206,13 +202,11 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
   private final BlockPackedWriter writer;
   
   private final PostingsFormat postingsFormat;
+  private final Directory directory;
+  private final SegmentInfo si;
+  private final IOContext context;
   
   private final Predicate<BytesRef> termVectorFilter;
-  
-  private final Directory directory;
-  private final IOContext context;
-  private final SegmentInfo si;
-  private FieldInfos fi;
 
   /** Sole constructor. */
   public OrdTermVectorsWriter(Directory directory, SegmentInfo si, String segmentSuffix, IOContext context,
@@ -290,13 +284,14 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
     curDoc = null;
   }
 
+  private Map<String,TermsEnum> termDicts = new HashMap<String, TermsEnum>();
   private TermsEnum curTermDict;
   
   @Override
   public void startField(FieldInfo info, int numTerms, boolean positions,
       boolean offsets, boolean payloads) throws IOException {
     curField = curDoc.addField(info.number, numTerms, positions, offsets, payloads);
-    curTermDict = postingsFormat.fieldsProducer(new SegmentReadState(directory, si, fi, context)).terms(info.name).iterator();
+    curTermDict = termDicts.get(info.name);
   }
 
   @Override
@@ -740,7 +735,9 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
 
   @Override
   public int merge(MergeState mergeState) throws IOException {
-	fi = mergeState.mergeFieldInfos;
+	for (FieldInfo f : mergeState.mergeFieldInfos) {
+      termDicts.put(f.name, postingsFormat.fieldsProducer(new SegmentReadState(directory, si, mergeState.mergeFieldInfos, context)).terms(f.name).iterator());
+	}
     if (mergeState.needsIndexSort) {
       // TODO: can we gain back some optos even if index is sorted?  E.g. if sort results in large chunks of contiguous docs from one sub
       // being copied over...?
