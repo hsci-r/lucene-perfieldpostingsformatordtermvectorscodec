@@ -106,15 +106,15 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
     this.termDicts = reader.termDicts;
   }
   
-  private final Map<String, TermsEnum> termDicts;
+  private final Map<String, Terms> termDicts;
 
   /** Sole constructor. */
   public OrdTermVectorsReader(Directory d, SegmentInfo si, String segmentSuffix, FieldInfos fn,
       IOContext context, String formatName, CompressionMode compressionMode, PostingsFormat postingsFormat) throws IOException {
-	this.termDicts = new HashMap<String, TermsEnum>();
+	this.termDicts = new HashMap<String, Terms>();
 	for (FieldInfo f : fn) if (f.hasVectors()) {
 	  Terms terms = postingsFormat.fieldsProducer(new SegmentReadState(d, si, fn, context)).terms(f.name);
-	  if (terms != null) termDicts.put(f.name, terms.iterator());
+	  if (terms != null) termDicts.put(f.name, terms);
 	}
     this.compressionMode = compressionMode;
     final String segment = si.name;
@@ -687,7 +687,7 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
       return new TVTerms(numTerms[idx], fieldFlags[idx],
           terms[idx], termFreqs[idx],
           positionIndex[idx], positions[idx], startOffsets[idx], lengths[idx],
-          payloadIndex[idx], payloadBytes, termDicts.get(field));
+          payloadIndex[idx], payloadBytes, termDicts.get(field).iterator());
     }
 
     @Override
