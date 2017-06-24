@@ -687,7 +687,7 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
       return new TVTerms(numTerms[idx], fieldFlags[idx],
           terms[idx], termFreqs[idx],
           positionIndex[idx], positions[idx], startOffsets[idx], lengths[idx],
-          payloadIndex[idx], payloadBytes, termDicts.get(field).iterator());
+          payloadIndex[idx], payloadBytes, termDicts.get(field));
     }
 
     @Override
@@ -703,11 +703,11 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
     private final long[] terms;
     private final int[] termFreqs, positionIndex, positions, startOffsets, lengths, payloadIndex;
     private final BytesRef payloadBytes;
-    private final TermsEnum termDict;
+    private final Terms termDict;
 
     TVTerms(int numTerms, int flags, long[] terms, int[] termFreqs,
         int[] positionIndex, int[] positions, int[] startOffsets, int[] lengths,
-        int[] payloadIndex, BytesRef payloadBytes, TermsEnum termDict) {
+        int[] payloadIndex, BytesRef payloadBytes, Terms termDict) {
       this.numTerms = numTerms;
       this.flags = flags;
       this.terms = terms;
@@ -777,12 +777,13 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
     private long[] terms;
     private int[] termFreqs, positionIndex, positions, startOffsets, lengths, payloadIndex;
     private BytesRef payloads;
-    private TermsEnum termDict;
+    private Terms termDict;
     private BytesRef term;
-
+    
+    private TermsEnum curTermDict;
 
     void reset(int numTerms, int flags, long[] terms, int[] termFreqs, int[] positionIndex, int[] positions, int[] startOffsets, int[] lengths,
-        int[] payloadIndex, BytesRef payloads, TermsEnum termDict) {
+        int[] payloadIndex, BytesRef payloads, Terms termDict) {
       this.numTerms = numTerms;
       this.terms = terms;
       this.termFreqs = termFreqs;
@@ -793,6 +794,7 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
       this.payloadIndex = payloadIndex;
       this.payloads = payloads;
       this.termDict = termDict;
+      this.curTermDict = null;
       reset();
     }
 
@@ -808,8 +810,9 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
         assert ord < numTerms;
         ++ord;
       }
-      termDict.seekExact(terms[ord]);
-      return termDict.term();
+      if (this.curTermDict == null) this.curTermDict = termDict.iterator();
+      curTermDict.seekExact(terms[ord]);
+      return curTermDict.term();
     }
     
     public long nextOrd() throws IOException {
