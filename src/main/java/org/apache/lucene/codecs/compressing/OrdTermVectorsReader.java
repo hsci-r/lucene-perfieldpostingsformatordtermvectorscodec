@@ -21,7 +21,9 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.NoSuchElementException;
 
 import org.apache.lucene.codecs.CodecUtil;
@@ -100,26 +102,21 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
     this.numChunks = reader.numChunks;
     this.numDirtyChunks = reader.numDirtyChunks;
     this.maxPointer = reader.maxPointer;
-    this.directory = reader.directory;
-    this.si = reader.si;
-    this.context = reader.context;
-    this.postingsFormat = reader.postingsFormat;
     this.closed = false;
+    this.termDicts = reader.termDicts;
   }
   
-  private final Directory directory;
-  private final IOContext context;
-  private final SegmentInfo si;
-  private final PostingsFormat postingsFormat;
+  private final Map<String, TermsEnum> termDicts;
 
   /** Sole constructor. */
   public OrdTermVectorsReader(Directory d, SegmentInfo si, String segmentSuffix, FieldInfos fn,
       IOContext context, String formatName, CompressionMode compressionMode, PostingsFormat postingsFormat) throws IOException {
-	this.directory = d;
-	this.si = si;
-	this.context = context;
+	this.termDicts = new HashMap<String, TermsEnum>();
+	for (FieldInfo f : fn) if (f.hasVectors()) {
+	  Terms terms = postingsFormat.fieldsProducer(new SegmentReadState(d, si, fn, context)).terms(f.name);
+	  if (terms != null) termDicts.put(f.name, terms.iterator());
+	}
     this.compressionMode = compressionMode;
-    this.postingsFormat = postingsFormat;
     final String segment = si.name;
     boolean success = false;
     fieldInfos = fn;
@@ -690,7 +687,7 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
       return new TVTerms(numTerms[idx], fieldFlags[idx],
           terms[idx], termFreqs[idx],
           positionIndex[idx], positions[idx], startOffsets[idx], lengths[idx],
-          payloadIndex[idx], payloadBytes, postingsFormat.fieldsProducer(new SegmentReadState(directory, si, fieldInfos, context)).terms(fieldInfos.fieldInfo(idx).name).iterator());
+          payloadIndex[idx], payloadBytes, termDicts.get(field));
     }
 
     @Override

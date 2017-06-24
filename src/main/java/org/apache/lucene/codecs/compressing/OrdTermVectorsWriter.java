@@ -26,6 +26,7 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import java.util.WeakHashMap;
 import java.util.function.Predicate;
 
 import org.apache.lucene.codecs.CodecUtil;
@@ -285,7 +286,7 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
     curDoc = null;
   }
 
-  private Map<String,TermsEnum> termDicts = new HashMap<String, TermsEnum>();
+  private Map<String, TermsEnum> termDicts = new HashMap<String, TermsEnum>();
   private TermsEnum curTermDict;
   
   @Override
@@ -736,7 +737,7 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
 
   @Override
   public int merge(MergeState mergeState) throws IOException {
-	for (FieldInfo f : mergeState.mergeFieldInfos) {
+	for (FieldInfo f : mergeState.mergeFieldInfos) if (f.hasVectors()) {
  	  Terms terms = postingsFormat.fieldsProducer(new SegmentReadState(directory, si, mergeState.mergeFieldInfos, context)).terms(f.name);
  	  if (terms != null) termDicts.put(f.name, terms.iterator());
 	}
