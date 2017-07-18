@@ -31,7 +31,7 @@ import fi.seco.lucene.OrdExposingFSTOrdPostingsFormat
 import org.apache.lucene.codecs.blocktreeords.BlockTreeOrdsPostingsFormat
 import org.apache.lucene.codecs.compressing.OrdTermVectorsReader.TVTermsEnum
 
-class TestPerFieldPostingsFormatOrdTermVectorsCodec {
+abstract class ATestPerFieldPostingsFormatOrdTermVectorsCodec(pf: PostingsFormat) {
   
   var dir: Directory = null
   
@@ -48,7 +48,7 @@ class TestPerFieldPostingsFormatOrdTermVectorsCodec {
   val ft = new FieldType(TextField.TYPE_NOT_STORED)
   ft.setStoreTermVectors(true)
   
-  private def testPostingsFormat(pf: PostingsFormat) {
+  @Test def testTermVectors() {
     var iwc = new IndexWriterConfig()
     val ic = new TermVectorFilteringLucene62Codec()
     iwc.setCodec(ic)
@@ -125,12 +125,40 @@ class TestPerFieldPostingsFormatOrdTermVectorsCodec {
     assertThat(tvi2.nextOrd(), equalTo(-1l))
   }
   
-  @Test def testFSTOrdOrdsExposingTermsReader() {
-    testPostingsFormat(new OrdExposingFSTOrdPostingsFormat())
-  }
-  
-  @Test def testBlockTreeOrdsTermsReader() {
-    testPostingsFormat(new BlockTreeOrdsPostingsFormat())
+  @Test def testMerging() {
+    var iwc = new IndexWriterConfig()
+    val ic = new TermVectorFilteringLucene62Codec()
+    iwc.setCodec(ic)
+    var w = new IndexWriter(dir, iwc)
+    var d = new Document()
+    d.add(new Field("test","x testing 1 2 3", ft))
+    d.add(new Field("test2","x", ft))
+    w.addDocument(d)
+    w.commit()
+    d = new Document()
+    d.add(new Field("test","y testing 3 4 5", ft))
+    d.add(new Field("test2","x", ft))
+    w.addDocument(d)
+    w.commit()
+    d = new Document()
+    d.add(new Field("test","y testing 3 4 5 6", ft))
+    d.add(new Field("test2","x y", ft))
+    w.addDocument(d)
+    w.close()
+    var r = DirectoryReader.open(dir)
+    assertEquals(3, r.getContext.leaves().size) 
+    r.close()
+    iwc = new IndexWriterConfig()
+    fc.perFieldPostingsFormat = Map("test" -> pf, "test2" -> pf)
+    iwc.setCodec(fc)
+    iwc.setMergePolicy(new UpgradeIndexMergePolicy(iwc.getMergePolicy) {
+      override protected def shouldUpgradeSegment(si: SegmentCommitInfo): Boolean = si.info.getCodec.getName != fc.getName
+    })
+    w = new IndexWriter(dir, iwc)
+    w.forceMerge(1)
+    w.close()
+    r = DirectoryReader.open(dir)
+    assertEquals(1, r.getContext.leaves().size) 
   }
   
 }

@@ -54,6 +54,11 @@ import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.packed.BlockPackedWriter;
 import org.apache.lucene.util.packed.PackedInts;
 
+import com.koloboke.collect.map.IntObjMap;
+import com.koloboke.collect.map.ObjLongMap;
+import com.koloboke.collect.map.hash.HashIntObjMaps;
+import com.koloboke.collect.map.hash.HashObjLongMaps;
+
 /**
  * {@link TermVectorsWriter} for {@link CompressingTermVectorsFormat}.
  * @lucene.experimental
@@ -286,23 +291,31 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
     curDoc = null;
   }
 
-  private Map<String, TermsEnum> termDicts = new HashMap<String, TermsEnum>();
+  private IntObjMap<TermsEnum> termDicts;
   private TermsEnum curTermDict;
+  
+  private IntObjMap<ObjLongMap<BytesRef>> fieldTermToOrdCache;
+  private ObjLongMap<BytesRef> curTermCache;
+  private ObjLongMap<BytesRef> lastTermCache;
   
   @Override
   public void startField(FieldInfo info, int numTerms, boolean positions,
       boolean offsets, boolean payloads) throws IOException {
     curField = curDoc.addField(info.number, numTerms, positions, offsets, payloads);
-    curTermDict = termDicts.get(info.name);
+    curTermDict = termDicts.get(info.number);
+    lastTermCache = fieldTermToOrdCache.get(info.number);
+    curTermCache = HashObjLongMaps.newUpdatableMap(lastTermCache.size());
   }
 
   @Override
   public void finishField() throws IOException {
+    fieldTermToOrdCache.put(curField.fieldNum, curTermCache);
     curField = null;
     curTermDict = null;
   }
   
   private boolean filterCurrentTerm = false;
+  
 
   @Override
   public void startTerm(BytesRef term, int freq) throws IOException {
@@ -311,8 +324,13 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
 		filterCurrentTerm = true;
 	} else {
 		filterCurrentTerm = false;
-		curTermDict.seekExact(term);
-	    curField.addTerm(freq, curTermDict.ord());
+		long ord = lastTermCache.getLong(term);
+		if (ord == 0l) {
+			curTermDict.seekExact(term);
+			ord = curTermDict.ord();
+		}
+		curTermCache.put(BytesRef.deepCopyOf(term), ord);
+	    curField.addTerm(freq, ord);
 	}
   }
 
@@ -737,9 +755,14 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
 
   @Override
   public int merge(MergeState mergeState) throws IOException {
+	termDicts = HashIntObjMaps.newMutableMap(mergeState.mergeFieldInfos.size());
+	fieldTermToOrdCache = HashIntObjMaps.newMutableMap(mergeState.mergeFieldInfos.size());
 	for (FieldInfo f : mergeState.mergeFieldInfos) if (f.hasVectors()) {
  	  Terms terms = postingsFormat.fieldsProducer(new SegmentReadState(directory, si, mergeState.mergeFieldInfos, context)).terms(f.name);
- 	  if (terms != null) termDicts.put(f.name, terms.iterator());
+ 	  if (terms != null) {
+ 		  termDicts.put(f.number, terms.iterator());
+ 		  fieldTermToOrdCache.put(f.number, HashObjLongMaps.newUpdatableMap());
+ 	  }
 	}
     if (mergeState.needsIndexSort) {
       // TODO: can we gain back some optos even if index is sorted?  E.g. if sort results in large chunks of contiguous docs from one sub
