@@ -1,7 +1,7 @@
 package fi.seco.lucene
 
 import org.apache.lucene.codecs.FilterCodec
-import org.apache.lucene.codecs.lucene62.Lucene62Codec
+import org.apache.lucene.codecs.lucene70.Lucene70Codec
 import org.apache.lucene.codecs.PostingsFormat
 import org.apache.lucene.codecs.compressing.CompressionMode
 import org.apache.lucene.codecs.TermVectorsFormat
@@ -13,7 +13,7 @@ import java.util.function.Predicate
 import org.apache.lucene.codecs.perfield.PerFieldPostingsFormat
 import org.apache.lucene.codecs.lucene50.Lucene50PostingsFormat
 
-class PerFieldPostingsFormatOrdTermVectorsCodec extends FilterCodec("PerFieldPostingsFormatOrdTermVectorsCodec",new Lucene62Codec(Mode.BEST_COMPRESSION)) {
+class PerFieldPostingsFormatOrdTermVectorsCodec extends FilterCodec("PerFieldPostingsFormatOrdTermVectorsCodec",new Lucene70Codec(Mode.BEST_COMPRESSION)) {
 
   var perFieldPostingsFormat: Map[String, PostingsFormat] = Map.empty
   var termVectorFilter: Predicate[BytesRef] = null

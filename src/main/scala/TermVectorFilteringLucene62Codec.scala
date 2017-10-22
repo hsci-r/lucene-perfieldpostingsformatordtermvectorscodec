@@ -1,4 +1,4 @@
-import org.apache.lucene.codecs.lucene62.Lucene62Codec
+import org.apache.lucene.codecs.lucene70.Lucene70Codec
 import org.apache.lucene.codecs.FilterCodec
 import org.apache.lucene.codecs.TermVectorsFormat
 import org.apache.lucene.codecs.compressing.TermVectorFilteringCompressingTermVectorsWriter
@@ -7,7 +7,7 @@ import java.util.function.BiPredicate
 import org.apache.lucene.index.FieldInfo
 import org.apache.lucene.util.BytesRef
 
-class TermVectorFilteringLucene62Codec extends FilterCodec("Lucene62",new Lucene62Codec()) {
+class TermVectorFilteringLucene70Codec extends FilterCodec("Lucene70",new Lucene70Codec()) {
 
   var termVectorFilter: BiPredicate[FieldInfo,BytesRef] = null
 

@@ -50,7 +50,7 @@ abstract class ATestPerFieldPostingsFormatOrdTermVectorsCodec(pf: PostingsFormat
   
   @Test def testTermVectors() {
     var iwc = new IndexWriterConfig()
-    val ic = new TermVectorFilteringLucene62Codec()
+    val ic = new TermVectorFilteringLucene70Codec()
     iwc.setCodec(ic)
     var w = new IndexWriter(dir, iwc)
     var d = new Document()
@@ -64,7 +64,7 @@ abstract class ATestPerFieldPostingsFormatOrdTermVectorsCodec(pf: PostingsFormat
     w.close()
     var s = new IndexSearcher(DirectoryReader.open(dir))
     var r = s.search(new TermQuery(new Term("test","testing")), 10)
-    assertThat(r.totalHits, equalTo(2))
+    assertThat(r.totalHits, equalTo(2l))
     var tv = s.getIndexReader.getTermVector(r.scoreDocs(0).doc, "test")
     var tvi = tv.iterator()
     assertThat(tvi.next().utf8ToString(), equalTo("1"))
@@ -92,7 +92,7 @@ abstract class ATestPerFieldPostingsFormatOrdTermVectorsCodec(pf: PostingsFormat
     w.close()
     s = new IndexSearcher(DirectoryReader.open(dir))
     r = s.search(new TermQuery(new Term("test","testing")), 10)
-    assertThat(r.totalHits, equalTo(2))
+    assertThat(r.totalHits, equalTo(2l))
     tv = s.getIndexReader.getTermVector(r.scoreDocs(0).doc, "test")
     tvi = tv.iterator()
     assertThat(tvi.next().utf8ToString(), equalTo("1"))
@@ -127,7 +127,7 @@ abstract class ATestPerFieldPostingsFormatOrdTermVectorsCodec(pf: PostingsFormat
   
   @Test def testMerging() {
     var iwc = new IndexWriterConfig()
-    val ic = new TermVectorFilteringLucene62Codec()
+    val ic = new TermVectorFilteringLucene70Codec()
     iwc.setCodec(ic)
     var w = new IndexWriter(dir, iwc)
     var d = new Document()
