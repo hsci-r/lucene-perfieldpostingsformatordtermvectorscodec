@@ -158,14 +158,14 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
       assert CodecUtil.indexHeaderLength(codecNameDat, segmentSuffix) == vectorsStream.getFilePointer();
       
       long pos = vectorsStream.getFilePointer();
-      
-	  vectorsStream.seek(maxPointer);
-	  numChunks = vectorsStream.readVLong();
-	  numDirtyChunks = vectorsStream.readVLong();
-	  if (numDirtyChunks > numChunks) {
-	    throw new CorruptIndexException("invalid chunk counts: dirty=" + numDirtyChunks + ", total=" + numChunks, vectorsStream);
-	  }
-      
+
+      vectorsStream.seek(maxPointer);
+      numChunks = vectorsStream.readVLong();
+      numDirtyChunks = vectorsStream.readVLong();
+      if (numDirtyChunks > numChunks) {
+        throw new CorruptIndexException("invalid chunk counts: dirty=" + numDirtyChunks + ", total=" + numChunks, vectorsStream);
+      }
+
       // NOTE: data file is too costly to verify checksum against all the bytes on open,
       // but for now we at least verify proper structure of the checksum footer: which looks
       // for FOOTER_MAGIC + algorithmID. This is cheap and can detect some forms of corruption

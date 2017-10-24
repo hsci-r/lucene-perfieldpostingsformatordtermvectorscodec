@@ -65,9 +65,8 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
   static final String CODEC_SFX_IDX = "Index";
   static final String CODEC_SFX_DAT = "Data";
 
-  static final int VERSION_START = 0;
-  static final int VERSION_CHUNK_STATS = 1;
-  static final int VERSION_CURRENT = VERSION_CHUNK_STATS;
+  static final int VERSION_START = 1;
+  static final int VERSION_CURRENT = VERSION_START;
 
   static final int PACKED_BLOCK_SIZE = 64;
 
@@ -332,7 +331,7 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
   }
 
   private boolean triggerFlush() {
-	return termSuffixes.getPosition() >= chunkSize
+    return termSuffixes.getPosition() >= chunkSize
         || pendingDocs.size() >= MAX_DOCUMENTS_PER_CHUNK;
   }
 
