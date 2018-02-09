@@ -13,7 +13,7 @@ import java.util.function.Predicate
 import org.apache.lucene.codecs.perfield.PerFieldPostingsFormat
 import org.apache.lucene.codecs.lucene50.Lucene50PostingsFormat
 
-class PerFieldPostingsFormatOrdTermVectorsCodec extends FilterCodec("PerFieldPostingsFormatOrdTermVectorsCodec",new Lucene70Codec(Mode.BEST_COMPRESSION)) {
+class Lucene70PerFieldPostingsFormatOrdTermVectorsCodec extends FilterCodec("Lucene70PerFieldPostingsFormatOrdTermVectorsCodec",new Lucene70Codec(Mode.BEST_COMPRESSION)) {
 
   var perFieldPostingsFormat: Map[String, PostingsFormat] = Map.empty
   var termVectorFilter: Predicate[BytesRef] = null

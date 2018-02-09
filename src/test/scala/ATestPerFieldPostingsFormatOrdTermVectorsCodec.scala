@@ -1,35 +1,13 @@
-import org.junit.Assert._
-import org.hamcrest.CoreMatchers._
-import org.junit.Test
-import org.apache.lucene.store.MMapDirectory
-import java.nio.file.FileSystems
-import java.nio.file.Files
-import org.junit.Before
-import org.apache.lucene.store.Directory
-import java.nio.file.Path
-import org.junit.After
-import java.util.Comparator
-import java.io.File
-import org.apache.lucene.store.RAMDirectory
-import org.apache.lucene.index.IndexWriterConfig
-import fi.seco.lucene.PerFieldPostingsFormatOrdTermVectorsCodec
-import org.apache.lucene.index.IndexWriter
-import org.apache.lucene.document.Document
-import org.apache.lucene.document.TextField
-import org.apache.lucene.document.Field.Store
-import org.apache.lucene.index.IndexReader
-import org.apache.lucene.index.DirectoryReader
-import org.apache.lucene.search.IndexSearcher
-import org.apache.lucene.search.TermQuery
-import org.apache.lucene.index.Term
-import org.apache.lucene.document.Field
-import org.apache.lucene.document.FieldType
-import org.apache.lucene.index.UpgradeIndexMergePolicy
-import org.apache.lucene.index.SegmentCommitInfo
+import fi.seco.lucene.Lucene70PerFieldPostingsFormatOrdTermVectorsCodec
 import org.apache.lucene.codecs.PostingsFormat
-import fi.seco.lucene.OrdExposingFSTOrdPostingsFormat
-import org.apache.lucene.codecs.blocktreeords.BlockTreeOrdsPostingsFormat
 import org.apache.lucene.codecs.compressing.OrdTermVectorsReader.TVTermsEnum
+import org.apache.lucene.document.{Document, Field, FieldType, TextField}
+import org.apache.lucene.index._
+import org.apache.lucene.search.{IndexSearcher, TermQuery}
+import org.apache.lucene.store.{Directory, RAMDirectory}
+import org.hamcrest.CoreMatchers._
+import org.junit.Assert._
+import org.junit.{After, Before, Test}
 
 abstract class ATestPerFieldPostingsFormatOrdTermVectorsCodec(pf: PostingsFormat) {
   
@@ -44,7 +22,7 @@ abstract class ATestPerFieldPostingsFormatOrdTermVectorsCodec(pf: PostingsFormat
     dir = null
   }
   
-  val fc = new PerFieldPostingsFormatOrdTermVectorsCodec()  
+  val fc = new Lucene70PerFieldPostingsFormatOrdTermVectorsCodec()  
   val ft = new FieldType(TextField.TYPE_NOT_STORED)
   ft.setStoreTermVectors(true)
   
