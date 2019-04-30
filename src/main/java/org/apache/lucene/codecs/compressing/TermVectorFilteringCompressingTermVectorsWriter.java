@@ -36,9 +36,9 @@ import org.apache.lucene.index.Fields;
 import org.apache.lucene.index.IndexFileNames;
 import org.apache.lucene.index.MergeState;
 import org.apache.lucene.index.SegmentInfo;
+import org.apache.lucene.store.ByteBuffersDataOutput;
 import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.store.GrowableByteArrayDataOutput;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.IndexOutput;
@@ -176,8 +176,8 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
       if (hasOffsets) {
         if (offStart + totalPositions == startOffsetsBuf.length) {
           final int newLength = ArrayUtil.oversize(offStart + totalPositions, 4);
-          startOffsetsBuf = Arrays.copyOf(startOffsetsBuf, newLength);
-          lengthsBuf = Arrays.copyOf(lengthsBuf, newLength);
+          startOffsetsBuf = ArrayUtil.growExact(startOffsetsBuf, newLength);
+          lengthsBuf = ArrayUtil.growExact(lengthsBuf, newLength);
         }
         startOffsetsBuf[offStart + totalPositions] = startOffset;
         lengthsBuf[offStart + totalPositions] = length;
@@ -199,8 +199,8 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
   private FieldData curField; // current field
   private final BytesRef lastTerm;
   private int[] positionsBuf, startOffsetsBuf, lengthsBuf, payloadLengthsBuf;
-  private final GrowableByteArrayDataOutput termSuffixes; // buffered term suffixes
-  private final GrowableByteArrayDataOutput payloadBytes; // buffered term payloads
+  private final ByteBuffersDataOutput termSuffixes; // buffered term suffixes
+  private final ByteBuffersDataOutput payloadBytes; // buffered term payloads
   private final BlockPackedWriter writer;
   
   private final BiPredicate<FieldInfo,BytesRef> termVectorFilter;
@@ -217,8 +217,8 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
 
     numDocs = 0;
     pendingDocs = new ArrayDeque<>();
-    termSuffixes = new GrowableByteArrayDataOutput(ArrayUtil.oversize(chunkSize, 1));
-    payloadBytes = new GrowableByteArrayDataOutput(ArrayUtil.oversize(1, 1));
+    termSuffixes = ByteBuffersDataOutput.newResettableInstance();
+    payloadBytes = ByteBuffersDataOutput.newResettableInstance();
     lastTerm = new BytesRef(ArrayUtil.oversize(30, 1));
 
     boolean success = false;
@@ -273,7 +273,7 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
   @Override
   public void finishDocument() throws IOException {
     // append the payload bytes of the doc after its terms
-    termSuffixes.writeBytes(payloadBytes.getBytes(), payloadBytes.getPosition());
+    payloadBytes.copyTo(termSuffixes);
     payloadBytes.reset();
     ++numDocs;
     if (triggerFlush()) {
@@ -305,7 +305,13 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
     	filterCurrentTerm = true;
     } else {
     	filterCurrentTerm = false;
-        final int prefix = StringHelper.bytesDifference(lastTerm, term);
+        final int prefix;
+        if (lastTerm.length == 0) {
+          // no previous term: no bytes to write
+          prefix = 0;
+        } else {
+          prefix = StringHelper.bytesDifference(lastTerm, term);
+        }
         curField.addTerm(freq, prefix, term.length - prefix);
         termSuffixes.writeBytes(term.bytes, term.offset + prefix, term.length - prefix);
         // copy last term
@@ -331,7 +337,7 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
   }
 
   private boolean triggerFlush() {
-    return termSuffixes.getPosition() >= chunkSize
+    return termSuffixes.size() >= chunkSize
         || pendingDocs.size() >= MAX_DOCUMENTS_PER_CHUNK;
   }
 
@@ -370,8 +376,11 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
       flushPayloadLengths();
 
       // compress terms and payloads and write them to the output
-      compressor.compress(termSuffixes.getBytes(), 0, termSuffixes.getPosition(), vectorsStream);
-    }
+      //
+      // TODO: We could compress in the slices we already have in the buffer (min/max slice
+      // can be set on the buffer itself).
+      byte[] content = termSuffixes.toArrayCopy();
+      compressor.compress(content, 0, content.length, vectorsStream);    }
 
     // reset
     pendingDocs.clear();
@@ -714,8 +723,8 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
       final int offStart = curField.offStart + curField.totalPositions;
       if (offStart + numProx > startOffsetsBuf.length) {
         final int newLength = ArrayUtil.oversize(offStart + numProx, 4);
-        startOffsetsBuf = Arrays.copyOf(startOffsetsBuf, newLength);
-        lengthsBuf = Arrays.copyOf(lengthsBuf, newLength);
+        startOffsetsBuf = ArrayUtil.growExact(startOffsetsBuf, newLength);
+        lengthsBuf = ArrayUtil.growExact(lengthsBuf, newLength);
       }
       int lastOffset = 0, startOffset, endOffset;
       for (int i = 0; i < numProx; ++i) {

@@ -2,14 +2,14 @@ name := """lucene-perfieldpostingsformatordtermvectorscodec"""
 
 organization := "fi.seco"
 
-version := "1.1.1"
+version := "1.1.2"
 
-scalaVersion := "2.12.4"
+scalaVersion := "2.12.8"
 
-crossScalaVersions := Seq("2.10.6", "2.11.11")
+crossScalaVersions := Seq("2.10.7", "2.11.12")
 
 libraryDependencies ++= Seq(
-  "org.apache.lucene" % "lucene-codecs" % "7.1.0",
+  "org.apache.lucene" % "lucene-codecs" % "8.0.0",
   "com.koloboke" % "koloboke-api-jdk8" % "1.0.0",
   "com.koloboke" % "koloboke-impl-jdk8" % "1.0.0", 
   "junit" % "junit" % "4.12" % "test"

@@ -1,4 +1,4 @@
-import fi.seco.lucene.Lucene70PerFieldPostingsFormatOrdTermVectorsCodec
+import fi.seco.lucene.Lucene80PerFieldPostingsFormatOrdTermVectorsCodec
 import org.apache.lucene.codecs.PostingsFormat
 import org.apache.lucene.codecs.compressing.OrdTermVectorsReader.TVTermsEnum
 import org.apache.lucene.document.{Document, Field, FieldType, TextField}
@@ -11,7 +11,7 @@ import org.junit.{After, Before, Test}
 
 abstract class ATestPerFieldPostingsFormatOrdTermVectorsCodec(pf: PostingsFormat) {
   
-  var dir: Directory = null
+  var dir: Directory = _
   
   @Before def setUp() {
     dir = new RAMDirectory()
@@ -22,13 +22,13 @@ abstract class ATestPerFieldPostingsFormatOrdTermVectorsCodec(pf: PostingsFormat
     dir = null
   }
   
-  val fc = new Lucene70PerFieldPostingsFormatOrdTermVectorsCodec()  
+  val fc = new Lucene80PerFieldPostingsFormatOrdTermVectorsCodec()
   val ft = new FieldType(TextField.TYPE_NOT_STORED)
   ft.setStoreTermVectors(true)
   
   @Test def testTermVectors() {
     var iwc = new IndexWriterConfig()
-    val ic = new TermVectorFilteringLucene70Codec()
+    val ic = new TermVectorFilteringLucene80Codec()
     iwc.setCodec(ic)
     var w = new IndexWriter(dir, iwc)
     var d = new Document()
@@ -42,7 +42,7 @@ abstract class ATestPerFieldPostingsFormatOrdTermVectorsCodec(pf: PostingsFormat
     w.close()
     var s = new IndexSearcher(DirectoryReader.open(dir))
     var r = s.search(new TermQuery(new Term("test","testing")), 10)
-    assertThat(r.totalHits, equalTo(2l))
+    assertThat(r.totalHits.value, equalTo(2l))
     var tv = s.getIndexReader.getTermVector(r.scoreDocs(0).doc, "test")
     var tvi = tv.iterator()
     assertThat(tvi.next().utf8ToString(), equalTo("1"))
@@ -70,7 +70,7 @@ abstract class ATestPerFieldPostingsFormatOrdTermVectorsCodec(pf: PostingsFormat
     w.close()
     s = new IndexSearcher(DirectoryReader.open(dir))
     r = s.search(new TermQuery(new Term("test","testing")), 10)
-    assertThat(r.totalHits, equalTo(2l))
+    assertThat(r.totalHits.value, equalTo(2l))
     tv = s.getIndexReader.getTermVector(r.scoreDocs(0).doc, "test")
     tvi = tv.iterator()
     assertThat(tvi.next().utf8ToString(), equalTo("1"))
@@ -105,7 +105,7 @@ abstract class ATestPerFieldPostingsFormatOrdTermVectorsCodec(pf: PostingsFormat
   
   @Test def testMerging() {
     var iwc = new IndexWriterConfig()
-    val ic = new TermVectorFilteringLucene70Codec()
+    val ic = new TermVectorFilteringLucene80Codec()
     iwc.setCodec(ic)
     var w = new IndexWriter(dir, iwc)
     var d = new Document()

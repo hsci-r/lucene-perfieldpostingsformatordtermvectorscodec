@@ -21,12 +21,9 @@ import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.Deque;
-import java.util.HashMap;
 import java.util.Iterator;
-import java.util.Map;
 import java.util.SortedSet;
 import java.util.TreeSet;
-import java.util.WeakHashMap;
 import java.util.function.Predicate;
 
 import org.apache.lucene.codecs.CodecUtil;
@@ -42,9 +39,9 @@ import org.apache.lucene.index.SegmentInfo;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
+import org.apache.lucene.store.ByteBuffersDataOutput;
 import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.store.GrowableByteArrayDataOutput;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.util.ArrayUtil;
@@ -183,8 +180,8 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
       if (hasOffsets) {
         if (offStart + totalPositions == startOffsetsBuf.length) {
           final int newLength = ArrayUtil.oversize(offStart + totalPositions, 4);
-          startOffsetsBuf = Arrays.copyOf(startOffsetsBuf, newLength);
-          lengthsBuf = Arrays.copyOf(lengthsBuf, newLength);
+          startOffsetsBuf = ArrayUtil.growExact(startOffsetsBuf, newLength);
+          lengthsBuf = ArrayUtil.growExact(lengthsBuf, newLength);
         }
         startOffsetsBuf[offStart + totalPositions] = startOffset;
         lengthsBuf[offStart + totalPositions] = length;
@@ -204,7 +201,7 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
   private DocData curDoc; // current document
   private FieldData curField; // current field
   private int[] positionsBuf, startOffsetsBuf, lengthsBuf, payloadLengthsBuf;
-  private final GrowableByteArrayDataOutput payloadBytes; // buffered term payloads
+  private final ByteBuffersDataOutput payloadBytes; // buffered term payloads
   private final BlockPackedWriter writer;
   
   private final PostingsFormat postingsFormat;
@@ -229,7 +226,7 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
 
     numDocs = 0;
     pendingDocs = new ArrayDeque<>();
-    payloadBytes = new GrowableByteArrayDataOutput(ArrayUtil.oversize(1, 1));
+    payloadBytes = ByteBuffersDataOutput.newResettableInstance();
 
     boolean success = false;
     IndexOutput indexStream = directory.createOutput(IndexFileNames.segmentFileName(segment, segmentSuffix, VECTORS_INDEX_EXTENSION), 
@@ -346,7 +343,7 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
   }
 
   private boolean triggerFlush() {
-    return payloadBytes.getPosition() >= chunkSize
+    return payloadBytes.size() >= chunkSize
         || pendingDocs.size() >= MAX_DOCUMENTS_PER_CHUNK;
   }
 
@@ -385,7 +382,11 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
       flushPayloadLengths();
 
       // compress terms and payloads and write them to the output
-      compressor.compress(payloadBytes.getBytes(), 0, payloadBytes.getPosition(), vectorsStream);
+      //
+      // TODO: We could compress in the slices we already have in the buffer (min/max slice
+      // can be set on the buffer itself).
+      byte[] content = payloadBytes.toArrayCopy();
+      compressor.compress(content, 0, content.length, vectorsStream);
     }
 
     // reset
@@ -723,8 +724,8 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
       final int offStart = curField.offStart + curField.totalPositions;
       if (offStart + numProx > startOffsetsBuf.length) {
         final int newLength = ArrayUtil.oversize(offStart + numProx, 4);
-        startOffsetsBuf = Arrays.copyOf(startOffsetsBuf, newLength);
-        lengthsBuf = Arrays.copyOf(lengthsBuf, newLength);
+        startOffsetsBuf = ArrayUtil.growExact(startOffsetsBuf, newLength);
+        lengthsBuf = ArrayUtil.growExact(lengthsBuf, newLength);
       }
       int lastOffset = 0, startOffset, endOffset;
       for (int i = 0; i < numProx; ++i) {

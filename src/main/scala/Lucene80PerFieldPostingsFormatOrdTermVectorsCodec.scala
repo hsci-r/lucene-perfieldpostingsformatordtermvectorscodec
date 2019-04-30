@@ -1,7 +1,7 @@
 package fi.seco.lucene
 
 import org.apache.lucene.codecs.FilterCodec
-import org.apache.lucene.codecs.lucene70.Lucene70Codec
+import org.apache.lucene.codecs.lucene80.Lucene80Codec
 import org.apache.lucene.codecs.PostingsFormat
 import org.apache.lucene.codecs.compressing.CompressionMode
 import org.apache.lucene.codecs.TermVectorsFormat
@@ -13,10 +13,10 @@ import java.util.function.Predicate
 import org.apache.lucene.codecs.perfield.PerFieldPostingsFormat
 import org.apache.lucene.codecs.lucene50.Lucene50PostingsFormat
 
-class Lucene70PerFieldPostingsFormatOrdTermVectorsCodec extends FilterCodec("Lucene70PerFieldPostingsFormatOrdTermVectorsCodec",new Lucene70Codec(Mode.BEST_COMPRESSION)) {
+class Lucene80PerFieldPostingsFormatOrdTermVectorsCodec extends FilterCodec("Lucene80PerFieldPostingsFormatOrdTermVectorsCodec",new Lucene80Codec(Mode.BEST_COMPRESSION)) {
 
   var perFieldPostingsFormat: Map[String, PostingsFormat] = Map.empty
-  var termVectorFilter: Predicate[BytesRef] = null
+  var termVectorFilter: Predicate[BytesRef] = _
   
   val lucene50PostingsFormat = new Lucene50PostingsFormat()
   
@@ -27,13 +27,10 @@ class Lucene70PerFieldPostingsFormatOrdTermVectorsCodec extends FilterCodec("Luc
   override def postingsFormat() = pfPostingsFormat 
     
   private val ordTermVectorsFormat = new TermVectorsFormat {
-     override def vectorsReader(directory: org.apache.lucene.store.Directory,segmentInfo: org.apache.lucene.index.SegmentInfo,fieldInfos: org.apache.lucene.index.FieldInfos,context: org.apache.lucene.store.IOContext): org.apache.lucene.codecs.TermVectorsReader = {
-       return new OrdTermVectorsReader(directory, segmentInfo, "",fieldInfos, context, "OrdTermVectors", CompressionMode.FAST_DECOMPRESSION, pfPostingsFormat)
-     }
-     override def vectorsWriter(directory: org.apache.lucene.store.Directory,segmentInfo: org.apache.lucene.index.SegmentInfo,context: org.apache.lucene.store.IOContext): org.apache.lucene.codecs.TermVectorsWriter = {
-       val ret = new OrdTermVectorsWriter(directory, segmentInfo, "", context, "OrdTermVectors", CompressionMode.FAST_DECOMPRESSION, 1 << 12, 1024, pfPostingsFormat, termVectorFilter)
-       return ret
-     }
+     override def vectorsReader(directory: org.apache.lucene.store.Directory,segmentInfo: org.apache.lucene.index.SegmentInfo,fieldInfos: org.apache.lucene.index.FieldInfos,context: org.apache.lucene.store.IOContext): org.apache.lucene.codecs.TermVectorsReader =
+       new OrdTermVectorsReader(directory, segmentInfo, "",fieldInfos, context, "OrdTermVectors", CompressionMode.FAST_DECOMPRESSION, pfPostingsFormat)
+     override def vectorsWriter(directory: org.apache.lucene.store.Directory,segmentInfo: org.apache.lucene.index.SegmentInfo,context: org.apache.lucene.store.IOContext): org.apache.lucene.codecs.TermVectorsWriter =
+       new OrdTermVectorsWriter(directory, segmentInfo, "", context, "OrdTermVectors", CompressionMode.FAST_DECOMPRESSION, 1 << 12, 1024, pfPostingsFormat, termVectorFilter)
   }
 
   override def termVectorsFormat() = ordTermVectorsFormat

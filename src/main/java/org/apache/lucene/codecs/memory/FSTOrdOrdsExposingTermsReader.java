@@ -35,8 +35,10 @@ import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.FieldInfos;
+import org.apache.lucene.index.ImpactsEnum;
 import org.apache.lucene.index.IndexFileNames;
 import org.apache.lucene.index.IndexOptions;
+import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.index.SegmentInfo;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.TermState;
@@ -112,8 +114,9 @@ public class FSTOrdOrdsExposingTermsReader extends FieldsProducer {
         FieldInfo fieldInfo = fieldInfos.fieldInfo(blockIn.readVInt());
         boolean hasFreq = fieldInfo.getIndexOptions() != IndexOptions.DOCS;
         long numTerms = blockIn.readVLong();
-        long sumTotalTermFreq = hasFreq ? blockIn.readVLong() : -1;
-        long sumDocFreq = blockIn.readVLong();
+        long sumTotalTermFreq = blockIn.readVLong();
+        // if freqs are omitted, sumDocFreq=sumTotalTermFreq and we only write one value
+        long sumDocFreq = hasFreq ? blockIn.readVLong() : sumTotalTermFreq;
         int docCount = blockIn.readVInt();
         int longsSize = blockIn.readVInt();
         FST<Long> index = new FST<>(indexIn, PositiveIntOutputs.getSingleton());
@@ -147,7 +150,7 @@ public class FSTOrdOrdsExposingTermsReader extends FieldsProducer {
       throw new CorruptIndexException("invalid sumDocFreq: " + field.sumDocFreq + " docCount: " + field.docCount + " (blockIn=" + blockIn + ")", indexIn);
     }
     // #positions must be >= #postings
-    if (field.sumTotalTermFreq != -1 && field.sumTotalTermFreq < field.sumDocFreq) {
+    if (field.sumTotalTermFreq < field.sumDocFreq) {
       throw new CorruptIndexException("invalid sumTotalTermFreq: " + field.sumTotalTermFreq + " sumDocFreq: " + field.sumDocFreq + " (blockIn=" + blockIn + ")", indexIn);
     }
     if (previous != null) {
@@ -305,7 +308,7 @@ public class FSTOrdOrdsExposingTermsReader extends FieldsProducer {
     }
 
     // Only wraps common operations for PBF interact
-    abstract class BaseTermsEnum extends TermsEnum {
+    abstract class BaseTermsEnum extends org.apache.lucene.index.BaseTermsEnum {
 
       /* Current term's ord, starts from 0 */
       long ord;
@@ -344,9 +347,6 @@ public class FSTOrdOrdsExposingTermsReader extends FieldsProducer {
         this.totalTermFreq = new long[INTERVAL];
         this.statsBlockOrd = -1;
         this.metaBlockOrd = -1;
-        if (!hasFreqs()) {
-          Arrays.fill(totalTermFreq, -1);
-        }
       }
 
       /** Decodes stats data into term state */
@@ -389,6 +389,7 @@ public class FSTOrdOrdsExposingTermsReader extends FieldsProducer {
             }
           } else {
             docFreq[i] = code;
+            totalTermFreq[i] = code;
           }
         }
       }
@@ -433,6 +434,12 @@ public class FSTOrdOrdsExposingTermsReader extends FieldsProducer {
       public PostingsEnum postings(PostingsEnum reuse, int flags) throws IOException {
         decodeMetaData();
         return postingsReader.postings(fieldInfo, state, reuse, flags);
+      }
+
+      @Override
+      public ImpactsEnum impacts(int flags) throws IOException {
+        decodeMetaData();
+        return postingsReader.impacts(fieldInfo, state, flags);
       }
 
       // TODO: this can be achieved by making use of Util.getByOutput()

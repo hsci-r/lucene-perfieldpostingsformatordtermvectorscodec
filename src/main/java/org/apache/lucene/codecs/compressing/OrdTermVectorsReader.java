@@ -28,17 +28,8 @@ import java.util.NoSuchElementException;
 
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.PostingsFormat;
+import org.apache.lucene.index.*;
 import org.apache.lucene.codecs.TermVectorsReader;
-import org.apache.lucene.index.CorruptIndexException;
-import org.apache.lucene.index.PostingsEnum;
-import org.apache.lucene.index.FieldInfo;
-import org.apache.lucene.index.FieldInfos;
-import org.apache.lucene.index.Fields;
-import org.apache.lucene.index.IndexFileNames;
-import org.apache.lucene.index.SegmentInfo;
-import org.apache.lucene.index.SegmentReadState;
-import org.apache.lucene.index.Terms;
-import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.index.TermsEnum.SeekStatus;
 import org.apache.lucene.store.AlreadyClosedException;
 import org.apache.lucene.store.ChecksumIndexInput;
@@ -695,6 +686,7 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
   private class TVTerms extends Terms {
 
     private final int numTerms, flags;
+    private final long totalTermFreq;
     private final long[] terms;
     private final int[] termFreqs, positionIndex, positions, startOffsets, lengths, payloadIndex;
     private final BytesRef payloadBytes;
@@ -714,6 +706,11 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
       this.payloadIndex = payloadIndex;
       this.payloadBytes = payloadBytes;
       this.termDict = termDict;
+      long ttf = 0;
+      for (int tf : termFreqs) {
+        ttf += tf;
+      }
+      this.totalTermFreq = ttf;
     }
 
     @Override
@@ -731,7 +728,7 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
 
     @Override
     public long getSumTotalTermFreq() throws IOException {
-      return -1L;
+      return totalTermFreq;
     }
 
     @Override
@@ -766,7 +763,7 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
 
   }
 
-  public static class TVTermsEnum extends TermsEnum {
+  public static class TVTermsEnum extends BaseTermsEnum {
 	  
     private int numTerms, ord;
     private long[] terms;
@@ -883,6 +880,11 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
       return docsEnum;
     }
 
+    @Override
+    public ImpactsEnum impacts(int flags) throws IOException {
+      final PostingsEnum delegate = postings(null, PostingsEnum.FREQS);
+      return new SlowImpactsEnum(delegate);
+    }
   }
 
   private static class TVPostingsEnum extends PostingsEnum {
