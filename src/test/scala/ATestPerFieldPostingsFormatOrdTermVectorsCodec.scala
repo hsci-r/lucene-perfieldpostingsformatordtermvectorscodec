@@ -1,4 +1,4 @@
-import fi.seco.lucene.Lucene80PerFieldPostingsFormatOrdTermVectorsCodec
+import fi.seco.lucene.{Lucene80PerFieldPostingsFormatOrdTermVectorsCodec, PerFieldPostingsFormatOrdTermVectorsCodec}
 import org.apache.lucene.codecs.PostingsFormat
 import org.apache.lucene.codecs.compressing.OrdTermVectorsReader.TVTermsEnum
 import org.apache.lucene.document.{Document, Field, FieldType, TextField}
@@ -9,7 +9,7 @@ import org.hamcrest.CoreMatchers._
 import org.junit.Assert._
 import org.junit.{After, Before, Test}
 
-abstract class ATestPerFieldPostingsFormatOrdTermVectorsCodec(pf: PostingsFormat) {
+abstract class ATestPerFieldPostingsFormatOrdTermVectorsCodec(pf: PostingsFormat, fc: PerFieldPostingsFormatOrdTermVectorsCodec = new Lucene80PerFieldPostingsFormatOrdTermVectorsCodec()) {
   
   var dir: Directory = _
   
@@ -22,7 +22,6 @@ abstract class ATestPerFieldPostingsFormatOrdTermVectorsCodec(pf: PostingsFormat
     dir = null
   }
   
-  val fc = new Lucene80PerFieldPostingsFormatOrdTermVectorsCodec()
   val ft = new FieldType(TextField.TYPE_NOT_STORED)
   ft.setStoreTermVectors(true)
   

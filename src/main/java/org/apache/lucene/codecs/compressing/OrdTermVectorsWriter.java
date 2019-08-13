@@ -18,12 +18,7 @@ package org.apache.lucene.codecs.compressing;
 
 
 import java.io.IOException;
-import java.util.ArrayDeque;
-import java.util.Arrays;
-import java.util.Deque;
-import java.util.Iterator;
-import java.util.SortedSet;
-import java.util.TreeSet;
+import java.util.*;
 import java.util.function.Predicate;
 
 import org.apache.lucene.codecs.CodecUtil;
@@ -289,18 +284,27 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
 
   private IntObjMap<TermsEnum> termDicts;
   private TermsEnum curTermDict;
+
+  private class LRUCache extends LinkedHashMap<BytesRef,Long> {
+    public LRUCache() {
+      super(10000);
+    }
+
+    @Override
+    protected boolean removeEldestEntry(Map.Entry eldest) {
+      return size() >= 10000;
+    }
+  }
   
-  private IntObjMap<ObjLongMap<BytesRef>> fieldTermToOrdCache;
-  private ObjLongMap<BytesRef> curTermCache;
-  private ObjLongMap<BytesRef> lastTermCache;
-  
+  private IntObjMap<LRUCache> fieldTermToOrdCache;
+  private LRUCache curTermCache;
+
   @Override
   public void startField(FieldInfo info, int numTerms, boolean positions,
       boolean offsets, boolean payloads) throws IOException {
     curField = curDoc.addField(info.number, numTerms, positions, offsets, payloads);
     curTermDict = termDicts.get(info.number);
-    lastTermCache = fieldTermToOrdCache.get(info.number);
-    curTermCache = HashObjLongMaps.newUpdatableMap(lastTermCache.size());
+    curTermCache = fieldTermToOrdCache.get(info.number);
   }
 
   @Override
@@ -320,12 +324,12 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
 		filterCurrentTerm = true;
 	} else {
 		filterCurrentTerm = false;
-		long ord = lastTermCache.getLong(term);
-		if (ord == 0l) {
+		Long ord = curTermCache.get(term);
+		if (ord == null) {
 			curTermDict.seekExact(term);
 			ord = curTermDict.ord();
+            curTermCache.put(BytesRef.deepCopyOf(term), ord);
 		}
-		curTermCache.put(BytesRef.deepCopyOf(term), ord);
 	    curField.addTerm(freq, ord);
 	}
   }
@@ -758,10 +762,10 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
 	termDicts = HashIntObjMaps.newMutableMap(mergeState.mergeFieldInfos.size());
 	fieldTermToOrdCache = HashIntObjMaps.newMutableMap(mergeState.mergeFieldInfos.size());
 	for (FieldInfo f : mergeState.mergeFieldInfos) if (f.hasVectors()) {
- 	  Terms terms = postingsFormat.fieldsProducer(new SegmentReadState(directory, si, mergeState.mergeFieldInfos, context)).terms(f.name);
+ 	  Terms terms = postingsFormat.fieldsProducer(new SegmentReadState(directory, si, mergeState.mergeFieldInfos, true, context, Collections.emptyMap())).terms(f.name);
  	  if (terms != null) {
  		  termDicts.put(f.number, terms.iterator());
- 		  fieldTermToOrdCache.put(f.number, HashObjLongMaps.newUpdatableMap());
+ 		  fieldTermToOrdCache.put(f.number, new LRUCache());
  	  }
 	}
     if (mergeState.needsIndexSort) {

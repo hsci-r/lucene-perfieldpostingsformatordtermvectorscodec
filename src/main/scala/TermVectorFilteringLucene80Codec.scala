@@ -9,7 +9,7 @@ import org.apache.lucene.util.BytesRef
 
 class TermVectorFilteringLucene80Codec extends FilterCodec("Lucene80",new Lucene80Codec()) {
 
-  var termVectorFilter: BiPredicate[FieldInfo,BytesRef] = null
+  var termVectorFilter: BiPredicate[FieldInfo,BytesRef] = _
 
   override def termVectorsFormat = new TermVectorsFormat {
      override def vectorsReader(directory: org.apache.lucene.store.Directory,segmentInfo: org.apache.lucene.index.SegmentInfo,fieldInfos: org.apache.lucene.index.FieldInfos,context: org.apache.lucene.store.IOContext): org.apache.lucene.codecs.TermVectorsReader =

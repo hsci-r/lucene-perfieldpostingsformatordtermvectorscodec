@@ -103,7 +103,7 @@ public final class OrdTermVectorsReader extends TermVectorsReader implements Clo
       IOContext context, String formatName, CompressionMode compressionMode, PostingsFormat postingsFormat) throws IOException {
 	this.termDicts = new HashMap<String, Terms>();
 	for (FieldInfo f : fn) if (f.hasVectors()) {
-	  Terms terms = postingsFormat.fieldsProducer(new SegmentReadState(d, si, fn, context)).terms(f.name);
+	  Terms terms = postingsFormat.fieldsProducer(new SegmentReadState(d, si, fn, true, context, Collections.emptyMap())).terms(f.name); // fast on heap FST
 	  if (terms != null) termDicts.put(f.name, terms);
 	}
     this.compressionMode = compressionMode;

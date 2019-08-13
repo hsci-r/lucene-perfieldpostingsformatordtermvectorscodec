@@ -1,0 +1,6 @@
+import fi.seco.lucene.Lucene70PerFieldPostingsFormatOrdTermVectorsCodec
+import org.apache.lucene.codecs.blocktreeords.BlockTreeOrdsPostingsFormat
+
+class Test70BlockTreePostingsFormat extends ATestPerFieldPostingsFormatOrdTermVectorsCodec(new BlockTreeOrdsPostingsFormat(), new Lucene70PerFieldPostingsFormatOrdTermVectorsCodec()) {
+  
+}

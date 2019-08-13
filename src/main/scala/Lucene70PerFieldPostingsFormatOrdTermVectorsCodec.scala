@@ -1,22 +1,15 @@
 package fi.seco.lucene
 
-import org.apache.lucene.codecs.{Codec, FilterCodec, PostingsFormat, TermVectorsFormat}
-import org.apache.lucene.codecs.lucene80.Lucene80Codec
-import org.apache.lucene.codecs.compressing.CompressionMode
-import org.apache.lucene.util.BytesRef
-import org.apache.lucene.codecs.compressing.OrdTermVectorsWriter
-import org.apache.lucene.codecs.compressing.OrdTermVectorsReader
-import org.apache.lucene.codecs.lucene50.Lucene50StoredFieldsFormat.Mode
 import java.util.function.Predicate
 
-import org.apache.lucene.codecs.perfield.PerFieldPostingsFormat
+import org.apache.lucene.codecs.compressing.{CompressionMode, OrdTermVectorsReader, OrdTermVectorsWriter}
 import org.apache.lucene.codecs.lucene50.Lucene50PostingsFormat
+import org.apache.lucene.codecs.lucene70.Lucene70Codec
+import org.apache.lucene.codecs.perfield.PerFieldPostingsFormat
+import org.apache.lucene.codecs.{FilterCodec, PostingsFormat, TermVectorsFormat}
+import org.apache.lucene.util.BytesRef
 
-trait PerFieldPostingsFormatOrdTermVectorsCodec extends Codec {
-  var perFieldPostingsFormat: Map[String, PostingsFormat]
-}
-
-class Lucene80PerFieldPostingsFormatOrdTermVectorsCodec extends FilterCodec("Lucene80PerFieldPostingsFormatOrdTermVectorsCodec",new Lucene80Codec(Mode.BEST_COMPRESSION)) with PerFieldPostingsFormatOrdTermVectorsCodec {
+class Lucene70PerFieldPostingsFormatOrdTermVectorsCodec extends FilterCodec("Lucene70PerFieldPostingsFormatOrdTermVectorsCodec",new Lucene70Codec()) with PerFieldPostingsFormatOrdTermVectorsCodec {
 
   var perFieldPostingsFormat: Map[String, PostingsFormat] = Map.empty
   var termVectorFilter: Predicate[BytesRef] = _
