@@ -4,9 +4,9 @@ organization := "fi.seco"
 
 version := "1.1.5"
 
-scalaVersion := "2.12.9"
+scalaVersion := "2.13.1"
 
-crossScalaVersions := Seq("2.10.7", "2.11.12")
+crossScalaVersions := Seq("2.10.7", "2.11.12","2.12.10")
 
 libraryDependencies ++= Seq(
   "org.apache.lucene" % "lucene-codecs" % "8.2.0",
