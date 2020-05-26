@@ -36,12 +36,7 @@ import org.apache.lucene.index.Fields;
 import org.apache.lucene.index.IndexFileNames;
 import org.apache.lucene.index.MergeState;
 import org.apache.lucene.index.SegmentInfo;
-import org.apache.lucene.store.ByteBuffersDataOutput;
-import org.apache.lucene.store.DataInput;
-import org.apache.lucene.store.Directory;
-import org.apache.lucene.store.IOContext;
-import org.apache.lucene.store.IndexInput;
-import org.apache.lucene.store.IndexOutput;
+import org.apache.lucene.store.*;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.BytesRef;
@@ -60,13 +55,12 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
   static final int MAX_DOCUMENTS_PER_CHUNK = 128;
 
   static final String VECTORS_EXTENSION = "tvd";
-  static final String VECTORS_INDEX_EXTENSION = "tvx";
-
-  static final String CODEC_SFX_IDX = "Index";
-  static final String CODEC_SFX_DAT = "Data";
+  static final String VECTORS_INDEX_EXTENSION_PREFIX = "tv";
+  static final String VECTORS_INDEX_CODEC_NAME = "Lucene85TermVectorsIndex";
 
   static final int VERSION_START = 1;
-  static final int VERSION_CURRENT = VERSION_START;
+  static final int VERSION_OFFHEAP_INDEX = 2;
+  static final int VERSION_CURRENT = VERSION_OFFHEAP_INDEX;
 
   static final int PACKED_BLOCK_SIZE = 64;
 
@@ -76,7 +70,7 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
   static final int FLAGS_BITS = PackedInts.bitsRequired(POSITIONS | OFFSETS | PAYLOADS);
 
   private final String segment;
-  private CompressingStoredFieldsIndexWriter indexWriter;
+  private FieldsIndexWriter indexWriter;
   private IndexOutput vectorsStream;
 
   private final CompressionMode compressionMode;
@@ -199,15 +193,15 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
   private FieldData curField; // current field
   private final BytesRef lastTerm;
   private int[] positionsBuf, startOffsetsBuf, lengthsBuf, payloadLengthsBuf;
-  private final ByteBuffersDataOutput termSuffixes; // buffered term suffixes
-  private final ByteBuffersDataOutput payloadBytes; // buffered term payloads
+  private final GrowableByteArrayDataOutput termSuffixes; // buffered term suffixes
+  private final GrowableByteArrayDataOutput payloadBytes; // buffered term payloads
   private final BlockPackedWriter writer;
   
   private final BiPredicate<FieldInfo,BytesRef> termVectorFilter;
 
   /** Sole constructor. */
   public TermVectorFilteringCompressingTermVectorsWriter(Directory directory, SegmentInfo si, String segmentSuffix, IOContext context,
-      String formatName, CompressionMode compressionMode, int chunkSize, int blockSize, BiPredicate<FieldInfo,BytesRef> termVectorFilter) throws IOException {
+      String formatName, CompressionMode compressionMode, int chunkSize, int blockShift, BiPredicate<FieldInfo,BytesRef> termVectorFilter) throws IOException {
     assert directory != null;
     this.segment = si.name;
     this.compressionMode = compressionMode;
@@ -217,26 +211,18 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
 
     numDocs = 0;
     pendingDocs = new ArrayDeque<>();
-    termSuffixes = ByteBuffersDataOutput.newResettableInstance();
-    payloadBytes = ByteBuffersDataOutput.newResettableInstance();
+    termSuffixes = new GrowableByteArrayDataOutput(ArrayUtil.oversize(chunkSize, 1));
+    payloadBytes = new GrowableByteArrayDataOutput(ArrayUtil.oversize(1, 1));
     lastTerm = new BytesRef(ArrayUtil.oversize(30, 1));
 
     boolean success = false;
-    IndexOutput indexStream = directory.createOutput(IndexFileNames.segmentFileName(segment, segmentSuffix, VECTORS_INDEX_EXTENSION), 
-                                                                     context);
     try {
       vectorsStream = directory.createOutput(IndexFileNames.segmentFileName(segment, segmentSuffix, VECTORS_EXTENSION),
-                                                     context);
+              context);
+      CodecUtil.writeIndexHeader(vectorsStream, formatName, VERSION_CURRENT, si.getId(), segmentSuffix);
+      assert CodecUtil.indexHeaderLength(formatName, segmentSuffix) == vectorsStream.getFilePointer();
 
-      final String codecNameIdx = formatName + CODEC_SFX_IDX;
-      final String codecNameDat = formatName + CODEC_SFX_DAT;
-      CodecUtil.writeIndexHeader(indexStream, codecNameIdx, VERSION_CURRENT, si.getId(), segmentSuffix);
-      CodecUtil.writeIndexHeader(vectorsStream, codecNameDat, VERSION_CURRENT, si.getId(), segmentSuffix);
-      assert CodecUtil.indexHeaderLength(codecNameDat, segmentSuffix) == vectorsStream.getFilePointer();
-      assert CodecUtil.indexHeaderLength(codecNameIdx, segmentSuffix) == indexStream.getFilePointer();
-
-      indexWriter = new CompressingStoredFieldsIndexWriter(indexStream, blockSize);
-      indexStream = null;
+      indexWriter = new FieldsIndexWriter(directory, segment, segmentSuffix, VECTORS_INDEX_EXTENSION_PREFIX, VECTORS_INDEX_CODEC_NAME, si.getId(), blockShift, context);
 
       vectorsStream.writeVInt(PackedInts.VERSION_CURRENT);
       vectorsStream.writeVInt(chunkSize);
@@ -250,7 +236,7 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
       success = true;
     } finally {
       if (!success) {
-        IOUtils.closeWhileHandlingException(vectorsStream, indexStream, indexWriter);
+        IOUtils.closeWhileHandlingException(vectorsStream, indexWriter, indexWriter);
       }
     }
   }
@@ -273,7 +259,7 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
   @Override
   public void finishDocument() throws IOException {
     // append the payload bytes of the doc after its terms
-    payloadBytes.copyTo(termSuffixes);
+    termSuffixes.writeBytes(payloadBytes.getBytes(), payloadBytes.getPosition());
     payloadBytes.reset();
     ++numDocs;
     if (triggerFlush()) {
@@ -337,7 +323,7 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
   }
 
   private boolean triggerFlush() {
-    return termSuffixes.size() >= chunkSize
+    return termSuffixes.getPosition() >= chunkSize
         || pendingDocs.size() >= MAX_DOCUMENTS_PER_CHUNK;
   }
 
@@ -376,11 +362,8 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
       flushPayloadLengths();
 
       // compress terms and payloads and write them to the output
-      //
-      // TODO: We could compress in the slices we already have in the buffer (min/max slice
-      // can be set on the buffer itself).
-      byte[] content = termSuffixes.toArrayCopy();
-      compressor.compress(content, 0, content.length, vectorsStream);    }
+      compressor.compress(termSuffixes.getBytes(), 0, termSuffixes.getPosition(), vectorsStream);
+    }
 
     // reset
     pendingDocs.clear();
@@ -578,17 +561,9 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
           final int fieldNumOff = Arrays.binarySearch(fieldNums, fd.fieldNum);
           int pos = 0;
           for (int i = 0; i < fd.ord; ++i) {
-            int previousPos = 0;
-            int previousOff = 0;
-            for (int j = 0; j < fd.freqs[i]; ++j) {
-              final int position = positionsBuf[fd.posStart + pos];
-              final int startOffset = startOffsetsBuf[fd.offStart + pos];
-              sumPos[fieldNumOff] += position - previousPos;
-              sumOffsets[fieldNumOff] += startOffset - previousOff;
-              previousPos = position;
-              previousOff = startOffset;
-              ++pos;
-            }
+            sumPos[fieldNumOff] += positionsBuf[fd.posStart + fd.freqs[i]-1 + pos];
+            sumOffsets[fieldNumOff] += startOffsetsBuf[fd.offStart + fd.freqs[i]-1 + pos];
+            pos += fd.freqs[i];
           }
           assert pos == fd.totalPositions;
         }
@@ -800,7 +775,7 @@ public final class TermVectorFilteringCompressingTermVectorsWriter extends TermV
         // read the docstart + doccount from the chunk header (we write a new header, since doc numbers will change),
         // and just copy the bytes directly.
         IndexInput rawDocs = matchingVectorsReader.getVectorsStream();
-        CompressingStoredFieldsIndexReader index = matchingVectorsReader.getIndexReader();
+        FieldsIndex index = matchingVectorsReader.getIndexReader();
         rawDocs.seek(index.getStartPointer(0));
         int docID = 0;
         while (docID < maxDoc) {

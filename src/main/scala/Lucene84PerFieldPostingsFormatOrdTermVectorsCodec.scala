@@ -3,21 +3,20 @@ package fi.seco.lucene
 import java.util.function.Predicate
 
 import org.apache.lucene.codecs.compressing.{CompressionMode, OrdTermVectorsReader, OrdTermVectorsWriter}
-import org.apache.lucene.codecs.lucene50.Lucene50PostingsFormat
-import org.apache.lucene.codecs.lucene70.Lucene70Codec
+import org.apache.lucene.codecs.lucene84.{Lucene84Codec, Lucene84PostingsFormat}
 import org.apache.lucene.codecs.perfield.PerFieldPostingsFormat
 import org.apache.lucene.codecs.{FilterCodec, PostingsFormat, TermVectorsFormat}
 import org.apache.lucene.util.BytesRef
 
-class Lucene70PerFieldPostingsFormatOrdTermVectorsCodec extends FilterCodec("Lucene70PerFieldPostingsFormatOrdTermVectorsCodec",new Lucene70Codec()) with PerFieldPostingsFormatOrdTermVectorsCodec {
+class Lucene84PerFieldPostingsFormatOrdTermVectorsCodec extends FilterCodec("Lucene84PerFieldPostingsFormatOrdTermVectorsCodec",new Lucene84Codec()) with PerFieldPostingsFormatOrdTermVectorsCodec {
 
   var perFieldPostingsFormat: Map[String, PostingsFormat] = Map.empty
   var termVectorFilter: Predicate[BytesRef] = _
   
-  val lucene50PostingsFormat = new Lucene50PostingsFormat()
+  val lucene84PostingsFormat = new Lucene84PostingsFormat()
   
   private val pfPostingsFormat = new PerFieldPostingsFormat() {
-    override def getPostingsFormatForField(field: String): PostingsFormat = perFieldPostingsFormat.getOrElse(field,lucene50PostingsFormat)
+    override def getPostingsFormatForField(field: String): PostingsFormat = perFieldPostingsFormat.getOrElse(field,lucene84PostingsFormat)
   }
   
   override def postingsFormat() = pfPostingsFormat 
