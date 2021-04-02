@@ -1,2 +1,4 @@
-fi.seco.lucene.Lucene70PerFieldPostingsFormatOrdTermVectorsCodec
-fi.seco.lucene.Lucene80PerFieldPostingsFormatOrdTermVectorsCodec
+fi.hsci.lucene.Lucene70PerFieldPostingsFormatOrdTermVectorsCodec
+fi.hsci.lucene.Lucene80PerFieldPostingsFormatOrdTermVectorsCodec
+fi.hsci.lucene.Lucene87PerFieldPostingsFormatOrdTermVectorsCodec
+

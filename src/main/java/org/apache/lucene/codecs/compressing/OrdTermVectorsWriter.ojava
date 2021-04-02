@@ -21,27 +21,35 @@ import java.io.IOException;
 import java.util.*;
 import java.util.function.Predicate;
 
-import com.koloboke.collect.map.IntObjMap;
-import com.koloboke.collect.map.hash.HashIntObjMaps;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.PostingsFormat;
 import org.apache.lucene.codecs.TermVectorsReader;
 import org.apache.lucene.codecs.TermVectorsWriter;
-import org.apache.lucene.index.*;
+import org.apache.lucene.index.FieldInfo;
+import org.apache.lucene.index.FieldInfos;
+import org.apache.lucene.index.Fields;
+import org.apache.lucene.index.IndexFileNames;
+import org.apache.lucene.index.MergeState;
+import org.apache.lucene.index.SegmentInfo;
+import org.apache.lucene.index.SegmentReadState;
+import org.apache.lucene.index.Terms;
+import org.apache.lucene.index.TermsEnum;
+import org.apache.lucene.store.ByteBuffersDataOutput;
 import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.store.GrowableByteArrayDataOutput;
 import org.apache.lucene.store.IOContext;
-import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.IndexOutput;
-import org.apache.lucene.util.Accountable;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.IOUtils;
-import org.apache.lucene.util.StringHelper;
 import org.apache.lucene.util.packed.BlockPackedWriter;
 import org.apache.lucene.util.packed.PackedInts;
+
+import com.koloboke.collect.map.IntObjMap;
+import com.koloboke.collect.map.ObjLongMap;
+import com.koloboke.collect.map.hash.HashIntObjMaps;
+import com.koloboke.collect.map.hash.HashObjLongMaps;
 
 /**
  * {@link TermVectorsWriter} for {@link CompressingTermVectorsFormat}.
@@ -54,15 +62,12 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
 
   static final String VECTORS_EXTENSION = "tvd";
   static final String VECTORS_INDEX_EXTENSION = "tvx";
-  static final String VECTORS_META_EXTENSION = "tvm";
-  static final String VECTORS_INDEX_CODEC_NAME = "Lucene85TermVectorsIndex";
+
+  static final String CODEC_SFX_IDX = "Index";
+  static final String CODEC_SFX_DAT = "Data";
 
   static final int VERSION_START = 1;
-  static final int VERSION_OFFHEAP_INDEX = 2;
-  /** Version where all metadata were moved to the meta file. */
-  static final int VERSION_META = 3;
-  static final int VERSION_CURRENT = VERSION_META;
-  static final int META_VERSION_START = 0;
+  static final int VERSION_CURRENT = VERSION_START;
 
   static final int PACKED_BLOCK_SIZE = 64;
 
@@ -72,15 +77,14 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
   static final int FLAGS_BITS = PackedInts.bitsRequired(POSITIONS | OFFSETS | PAYLOADS);
 
   private final String segment;
-  private FieldsIndexWriter indexWriter;
-  private IndexOutput metaStream, vectorsStream;
+  private CompressingStoredFieldsIndexWriter indexWriter;
+  private IndexOutput vectorsStream;
 
-  private final CompressionMode compressionMode;
   private final Compressor compressor;
   private final int chunkSize;
-
+  
+  private long numChunks; // number of compressed blocks written
   private long numDirtyChunks; // number of incomplete compressed blocks written
-  private long numDirtyDocs; // cumulative number of missing docs in incomplete chunks
 
   /** a pending doc */
   private class DocData {
@@ -142,7 +146,7 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
     int totalPositions;
     int ord;
     FieldData(int fieldNum, int numTerms, boolean positions, boolean offsets, boolean payloads,
-              int posStart, int offStart, int payStart) {
+        int posStart, int offStart, int payStart) {
       this.fieldNum = fieldNum;
       this.hasPositions = positions;
       this.hasOffsets = offsets;
@@ -192,50 +196,52 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
   private DocData curDoc; // current document
   private FieldData curField; // current field
   private int[] positionsBuf, startOffsetsBuf, lengthsBuf, payloadLengthsBuf;
-  private final GrowableByteArrayDataOutput payloadBytes; // buffered term payloads
+  private final ByteBuffersDataOutput payloadBytes; // buffered term payloads
   private final BlockPackedWriter writer;
-
+  
   private final PostingsFormat postingsFormat;
   private final Directory directory;
   private final SegmentInfo si;
   private final IOContext context;
-
+  
   private final Predicate<BytesRef> termVectorFilter;
 
   /** Sole constructor. */
   public OrdTermVectorsWriter(Directory directory, SegmentInfo si, String segmentSuffix, IOContext context,
-                               String formatName, CompressionMode compressionMode, int chunkSize, int blockShift, PostingsFormat postingsFormat, Predicate<BytesRef> termVectorFilter) throws IOException {
-    assert directory != null;
-    this.segment = si.name;
-    this.compressionMode = compressionMode;
-    this.compressor = compressionMode.newCompressor();
-    this.chunkSize = chunkSize;
-
+      String formatName, CompressionMode compressionMode, int chunkSize, int blockSize, PostingsFormat postingsFormat, Predicate<BytesRef> termVectorFilter) throws IOException {
     this.directory = directory;
     this.si = si;
     this.context = context;
+    assert directory != null;
+    this.segment = si.name;
+    this.compressor = compressionMode.newCompressor();
+    this.chunkSize = chunkSize;
     this.postingsFormat = postingsFormat;
     this.termVectorFilter = termVectorFilter;
 
     numDocs = 0;
     pendingDocs = new ArrayDeque<>();
-    payloadBytes = new GrowableByteArrayDataOutput(ArrayUtil.oversize(1, 1));
+    payloadBytes = ByteBuffersDataOutput.newResettableInstance();
 
     boolean success = false;
+    IndexOutput indexStream = directory.createOutput(IndexFileNames.segmentFileName(segment, segmentSuffix, VECTORS_INDEX_EXTENSION), 
+                                                                     context);
     try {
-      metaStream = directory.createOutput(IndexFileNames.segmentFileName(segment, segmentSuffix, VECTORS_META_EXTENSION), context);
-      CodecUtil.writeIndexHeader(metaStream, VECTORS_INDEX_CODEC_NAME + "Meta", VERSION_CURRENT, si.getId(), segmentSuffix);
-      assert CodecUtil.indexHeaderLength(VECTORS_INDEX_CODEC_NAME + "Meta", segmentSuffix) == metaStream.getFilePointer();
-
       vectorsStream = directory.createOutput(IndexFileNames.segmentFileName(segment, segmentSuffix, VECTORS_EXTENSION),
-              context);
-      CodecUtil.writeIndexHeader(vectorsStream, formatName, VERSION_CURRENT, si.getId(), segmentSuffix);
-      assert CodecUtil.indexHeaderLength(formatName, segmentSuffix) == vectorsStream.getFilePointer();
+                                                     context);
 
-      indexWriter = new FieldsIndexWriter(directory, segment, segmentSuffix, VECTORS_INDEX_EXTENSION, VECTORS_INDEX_CODEC_NAME, si.getId(), blockShift, context);
+      final String codecNameIdx = formatName + CODEC_SFX_IDX;
+      final String codecNameDat = formatName + CODEC_SFX_DAT;
+      CodecUtil.writeIndexHeader(indexStream, codecNameIdx, VERSION_CURRENT, si.getId(), segmentSuffix);
+      CodecUtil.writeIndexHeader(vectorsStream, codecNameDat, VERSION_CURRENT, si.getId(), segmentSuffix);
+      assert CodecUtil.indexHeaderLength(codecNameDat, segmentSuffix) == vectorsStream.getFilePointer();
+      assert CodecUtil.indexHeaderLength(codecNameIdx, segmentSuffix) == indexStream.getFilePointer();
 
-      metaStream.writeVInt(PackedInts.VERSION_CURRENT);
-      metaStream.writeVInt(chunkSize);
+      indexWriter = new CompressingStoredFieldsIndexWriter(indexStream, blockSize);
+      indexStream = null;
+
+      vectorsStream.writeVInt(PackedInts.VERSION_CURRENT);
+      vectorsStream.writeVInt(chunkSize);
       writer = new BlockPackedWriter(vectorsStream, PACKED_BLOCK_SIZE);
 
       positionsBuf = new int[1024];
@@ -246,7 +252,7 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
       success = true;
     } finally {
       if (!success) {
-        IOUtils.closeWhileHandlingException(metaStream, vectorsStream, indexWriter, indexWriter);
+        IOUtils.closeWhileHandlingException(vectorsStream, indexStream, indexWriter);
       }
     }
   }
@@ -254,9 +260,8 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
   @Override
   public void close() throws IOException {
     try {
-      IOUtils.close(metaStream, vectorsStream, indexWriter);
+      IOUtils.close(vectorsStream, indexWriter);
     } finally {
-      metaStream = null;
       vectorsStream = null;
       indexWriter = null;
     }
@@ -269,6 +274,7 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
 
   @Override
   public void finishDocument() throws IOException {
+    // append the payload bytes of the doc after its terms
     ++numDocs;
     if (triggerFlush()) {
       flush();
@@ -289,13 +295,13 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
       return size() >= 10000;
     }
   }
-
+  
   private IntObjMap<LRUCache> fieldTermToOrdCache;
   private LRUCache curTermCache;
 
   @Override
   public void startField(FieldInfo info, int numTerms, boolean positions,
-                         boolean offsets, boolean payloads) throws IOException {
+      boolean offsets, boolean payloads) throws IOException {
     curField = curDoc.addField(info.number, numTerms, positions, offsets, payloads);
     curTermDict = termDicts.get(info.number);
     curTermCache = fieldTermToOrdCache.get(info.number);
@@ -304,45 +310,45 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
   @Override
   public void finishField() throws IOException {
     fieldTermToOrdCache.put(curField.fieldNum, curTermCache);
-    curTermDict = null;
     curField = null;
+    curTermDict = null;
   }
-
+  
   private boolean filterCurrentTerm = false;
+  
 
   @Override
   public void startTerm(BytesRef term, int freq) throws IOException {
-    assert freq >= 1;
-    final int prefix;
-    if (termVectorFilter != null && !termVectorFilter.test(term)) {
-      filterCurrentTerm = true;
-    } else {
-      filterCurrentTerm = false;
-      Long ord = curTermCache.get(term);
-      if (ord == null) {
-        curTermDict.seekExact(term);
-        ord = curTermDict.ord();
-        curTermCache.put(BytesRef.deepCopyOf(term), ord);
-      }
-      curField.addTerm(freq, ord);
-    }
+	assert freq >= 1;
+	if (termVectorFilter != null && !termVectorFilter.test(term)) {
+		filterCurrentTerm = true;
+	} else {
+		filterCurrentTerm = false;
+		Long ord = curTermCache.get(term);
+		if (ord == null) {
+			curTermDict.seekExact(term);
+			ord = curTermDict.ord();
+            curTermCache.put(BytesRef.deepCopyOf(term), ord);
+		}
+	    curField.addTerm(freq, ord);
+	}
   }
 
   @Override
   public void addPosition(int position, int startOffset, int endOffset,
-                          BytesRef payload) throws IOException {
+      BytesRef payload) throws IOException {
     assert curField.flags != 0;
     if (!filterCurrentTerm) {
-      curField.addPosition(position, startOffset, endOffset - startOffset, payload == null ? 0 : payload.length);
-      if (curField.hasPayloads && payload != null) {
-        payloadBytes.writeBytes(payload.bytes, payload.offset, payload.length);
-      }
+        curField.addPosition(position, startOffset, endOffset - startOffset, payload == null ? 0 : payload.length);
+        if (curField.hasPayloads && payload != null) {
+          payloadBytes.writeBytes(payload.bytes, payload.offset, payload.length);
+	    }
     }
   }
 
   private boolean triggerFlush() {
-    return payloadBytes.getPosition() >= chunkSize
-            || pendingDocs.size() >= MAX_DOCUMENTS_PER_CHUNK;
+    return payloadBytes.size() >= chunkSize
+        || pendingDocs.size() >= MAX_DOCUMENTS_PER_CHUNK;
   }
 
   private void flush() throws IOException {
@@ -380,7 +386,11 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
       flushPayloadLengths();
 
       // compress terms and payloads and write them to the output
-      compressor.compress(payloadBytes.getBytes(), 0, payloadBytes.getPosition(), vectorsStream);
+      //
+      // TODO: We could compress in the slices we already have in the buffer (min/max slice
+      // can be set on the buffer itself).
+      byte[] content = payloadBytes.toArrayCopy();
+      compressor.compress(content, 0, content.length, vectorsStream);
     }
 
     // reset
@@ -388,6 +398,7 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
     curDoc = null;
     curField = null;
     payloadBytes.reset();
+    numChunks++;
   }
 
   private int flushNumFields(int chunkDocs) throws IOException {
@@ -503,7 +514,7 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
     final int bitsRequired = PackedInts.bitsRequired(maxNumTerms);
     vectorsStream.writeVInt(bitsRequired);
     final PackedInts.Writer writer = PackedInts.getWriterNoHeader(
-            vectorsStream, PackedInts.Format.PACKED, totalFields, bitsRequired, 1);
+        vectorsStream, PackedInts.Format.PACKED, totalFields, bitsRequired, 1);
     for (DocData dd : pendingDocs) {
       for (FieldData fd : dd.fields) {
         writer.add(fd.ord);
@@ -519,7 +530,7 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
       for (FieldData fd : dd.fields) {
         long previousTerm = -1;
         for (int i = 0; i < fd.ord; ++i) {
-          final long term = fd.terms[i];
+          final long term = fd.terms[i]; 
           writer.add(term - previousTerm - 1);
           previousTerm = term;
         }
@@ -572,9 +583,17 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
           final int fieldNumOff = Arrays.binarySearch(fieldNums, fd.fieldNum);
           int pos = 0;
           for (int i = 0; i < fd.ord; ++i) {
-            sumPos[fieldNumOff] += positionsBuf[fd.posStart + fd.freqs[i]-1 + pos];
-            sumOffsets[fieldNumOff] += startOffsetsBuf[fd.offStart + fd.freqs[i]-1 + pos];
-            pos += fd.freqs[i];
+            int previousPos = 0;
+            int previousOff = 0;
+            for (int j = 0; j < fd.freqs[i]; ++j) {
+              final int position = positionsBuf[fd.posStart + pos];
+              final int startOffset = startOffsetsBuf[fd.offStart + pos];
+              sumPos[fieldNumOff] += position - previousPos;
+              sumOffsets[fieldNumOff] += startOffset - previousOff;
+              previousPos = position;
+              previousOff = startOffset;
+              ++pos;
+            }
           }
           assert pos == fd.totalPositions;
         }
@@ -655,24 +674,21 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
   @Override
   public void finish(FieldInfos fis, int numDocs) throws IOException {
     if (!pendingDocs.isEmpty()) {
-      numDirtyChunks++; // incomplete: we had to force this flush
-      final long expectedChunkDocs = Math.min(MAX_DOCUMENTS_PER_CHUNK, (long) ((double) chunkSize / payloadBytes.getPosition() * pendingDocs.size()));
-      numDirtyDocs += expectedChunkDocs - pendingDocs.size();
       flush();
+      numDirtyChunks++; // incomplete: we had to force this flush
     }
     if (numDocs != this.numDocs) {
       throw new RuntimeException("Wrote " + this.numDocs + " docs, finish called with numDocs=" + numDocs);
     }
-    indexWriter.finish(numDocs, vectorsStream.getFilePointer(), metaStream);
-    metaStream.writeVLong(numDirtyChunks);
-    metaStream.writeVLong(numDirtyDocs);
-    CodecUtil.writeFooter(metaStream);
+    indexWriter.finish(numDocs, vectorsStream.getFilePointer());
+    vectorsStream.writeVLong(numChunks);
+    vectorsStream.writeVLong(numDirtyChunks);
     CodecUtil.writeFooter(vectorsStream);
   }
 
   @Override
   public void addProx(int numProx, DataInput positions, DataInput offsets)
-          throws IOException {
+      throws IOException {
     assert (curField.hasPositions) == (positions != null);
     assert (curField.hasOffsets) == (offsets != null);
 
@@ -727,7 +743,7 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
 
     curField.totalPositions += numProx;
   }
-
+  
   // bulk merge is scary: its caused corruption bugs in the past.
   // we try to be extra safe with this impl, but add an escape hatch to
   // have a workaround for undiscovered bugs.
@@ -743,15 +759,15 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
 
   @Override
   public int merge(MergeState mergeState) throws IOException {
-    termDicts = HashIntObjMaps.newMutableMap(mergeState.mergeFieldInfos.size());
-    fieldTermToOrdCache = HashIntObjMaps.newMutableMap(mergeState.mergeFieldInfos.size());
-    for (FieldInfo f : mergeState.mergeFieldInfos) if (f.hasVectors()) {
-      Terms terms = postingsFormat.fieldsProducer(new SegmentReadState(directory, si, mergeState.mergeFieldInfos, context)).terms(f.name);
-      if (terms != null) {
-        termDicts.put(f.number, terms.iterator());
-        fieldTermToOrdCache.put(f.number, new LRUCache());
-      }
-    }
+	termDicts = HashIntObjMaps.newMutableMap(mergeState.mergeFieldInfos.size());
+	fieldTermToOrdCache = HashIntObjMaps.newMutableMap(mergeState.mergeFieldInfos.size());
+	for (FieldInfo f : mergeState.mergeFieldInfos) if (f.hasVectors()) {
+ 	  Terms terms = postingsFormat.fieldsProducer(new SegmentReadState(directory, si, mergeState.mergeFieldInfos, true, context, Collections.emptyMap())).terms(f.name);
+ 	  if (terms != null) {
+ 		  termDicts.put(f.number, terms.iterator());
+ 		  fieldTermToOrdCache.put(f.number, new LRUCache());
+ 	  }
+	}
     if (mergeState.needsIndexSort) {
       // TODO: can we gain back some optos even if index is sorted?  E.g. if sort results in large chunks of contiguous docs from one sub
       // being copied over...?
@@ -760,64 +776,43 @@ public final class OrdTermVectorsWriter extends TermVectorsWriter {
     int docCount = 0;
     int numReaders = mergeState.maxDocs.length;
 
-    MatchingReaders matching = new MatchingReaders(mergeState);
-
     for (int readerIndex=0;readerIndex<numReaders;readerIndex++) {
-      CompressingTermVectorsReader matchingVectorsReader = null;
       final TermVectorsReader vectorsReader = mergeState.termVectorsReaders[readerIndex];
-      if (matching.matchingReaders[readerIndex]) {
-        // we can only bulk-copy if the matching reader is also a CompressingTermVectorsReader
-        if (vectorsReader != null && vectorsReader instanceof CompressingTermVectorsReader) {
-          matchingVectorsReader = (CompressingTermVectorsReader) vectorsReader;
-        }
-      }
 
       final int maxDoc = mergeState.maxDocs[readerIndex];
       final Bits liveDocs = mergeState.liveDocs[readerIndex];
-
-        // naive merge...
-        if (vectorsReader != null) {
-          vectorsReader.checkIntegrity();
+      
+      if (vectorsReader != null) {
+        vectorsReader.checkIntegrity();
+      }
+      for (int i = 0; i < maxDoc; i++) {
+        if (liveDocs != null && liveDocs.get(i) == false) {
+          continue;
         }
-        for (int i = 0; i < maxDoc; i++) {
-          if (liveDocs != null && liveDocs.get(i) == false) {
-            continue;
-          }
-          Fields vectors;
-          if (vectorsReader == null) {
-            vectors = null;
-          } else {
-            vectors = vectorsReader.get(i);
-          }
-          addAllDocVectors(vectors, mergeState);
-          ++docCount;
+        Fields vectors;
+        if (vectorsReader == null) {
+          vectors = null;
+        } else {
+          vectors = vectorsReader.get(i);
         }
+        addAllDocVectors(vectors, mergeState);
+        ++docCount;
+      }
     }
     finish(mergeState.mergeFieldInfos, docCount);
     return docCount;
   }
 
-  /**
-   * Returns true if we should recompress this reader, even though we could bulk merge compressed data
+  /** 
+   * Returns true if we should recompress this reader, even though we could bulk merge compressed data 
    * <p>
    * The last chunk written for a segment is typically incomplete, so without recompressing,
-   * in some worst-case situations (e.g. frequent reopen with tiny flushes), over time the
+   * in some worst-case situations (e.g. frequent reopen with tiny flushes), over time the 
    * compression ratio can degrade. This is a safety switch.
    */
   boolean tooDirty(CompressingTermVectorsReader candidate) {
     // more than 1% dirty, or more than hard limit of 1024 dirty chunks
-    return candidate.getNumDirtyChunks() > 1024 ||
-            candidate.getNumDirtyDocs() * 100 > candidate.getNumDocs();
-  }
-
-  @Override
-  public long ramBytesUsed() {
-    return positionsBuf.length + startOffsetsBuf.length + lengthsBuf.length + payloadLengthsBuf.length
-            + payloadBytes.ramBytesUsed();
-  }
-
-  @Override
-  public Collection<Accountable> getChildResources() {
-    return Collections.singleton(payloadBytes);
+    return candidate.getNumDirtyChunks() > 1024 || 
+           candidate.getNumDirtyChunks() * 100 > candidate.getNumChunks();
   }
 }

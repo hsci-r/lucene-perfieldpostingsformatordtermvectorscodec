@@ -1,4 +1,4 @@
-import fi.seco.lucene.{Lucene80PerFieldPostingsFormatOrdTermVectorsCodec, PerFieldPostingsFormatOrdTermVectorsCodec}
+import fi.hsci.lucene.{PerFieldPostingsFormatOrdTermVectorsCodec, TermVectorFilteringLucene87Codec}
 import org.apache.lucene.codecs.PostingsFormat
 import org.apache.lucene.codecs.compressing.OrdTermVectorsReader.TVTermsEnum
 import org.apache.lucene.document.{Document, Field, FieldType, TextField}
@@ -9,7 +9,7 @@ import org.hamcrest.CoreMatchers._
 import org.junit.Assert._
 import org.junit.{After, Before, Test}
 
-abstract class ATestPerFieldPostingsFormatOrdTermVectorsCodec(pf: PostingsFormat, fc: PerFieldPostingsFormatOrdTermVectorsCodec = new Lucene80PerFieldPostingsFormatOrdTermVectorsCodec()) {
+abstract class ATestPerFieldPostingsFormatOrdTermVectorsCodec(pf: PostingsFormat, fc: PerFieldPostingsFormatOrdTermVectorsCodec) {
   
   var dir: Directory = _
   
@@ -27,7 +27,7 @@ abstract class ATestPerFieldPostingsFormatOrdTermVectorsCodec(pf: PostingsFormat
   
   @Test def testTermVectors() {
     var iwc = new IndexWriterConfig()
-    val ic = new TermVectorFilteringLucene80Codec()
+    val ic = new TermVectorFilteringLucene87Codec()
     iwc.setCodec(ic)
     var w = new IndexWriter(dir, iwc)
     var d = new Document()
@@ -104,7 +104,7 @@ abstract class ATestPerFieldPostingsFormatOrdTermVectorsCodec(pf: PostingsFormat
   
   @Test def testMerging() {
     var iwc = new IndexWriterConfig()
-    val ic = new TermVectorFilteringLucene80Codec()
+    val ic = new TermVectorFilteringLucene87Codec()
     iwc.setCodec(ic)
     var w = new IndexWriter(dir, iwc)
     var d = new Document()

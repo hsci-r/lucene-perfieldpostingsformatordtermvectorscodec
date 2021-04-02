@@ -1,15 +1,15 @@
-package fi.seco.lucene
-
-import java.util.function.Predicate
+package fi.hsci.lucene
 
 import org.apache.lucene.codecs.compressing.{CompressionMode, OrdTermVectorsReader, OrdTermVectorsWriter}
 import org.apache.lucene.codecs.lucene50.Lucene50PostingsFormat
-import org.apache.lucene.codecs.lucene70.Lucene70Codec
+import org.apache.lucene.codecs.lucene80.Lucene80Codec
 import org.apache.lucene.codecs.perfield.PerFieldPostingsFormat
 import org.apache.lucene.codecs.{FilterCodec, PostingsFormat, TermVectorsFormat}
 import org.apache.lucene.util.BytesRef
 
-class Lucene70PerFieldPostingsFormatOrdTermVectorsCodec extends FilterCodec("Lucene70PerFieldPostingsFormatOrdTermVectorsCodec",new Lucene70Codec()) with PerFieldPostingsFormatOrdTermVectorsCodec {
+import java.util.function.Predicate
+
+class Lucene80PerFieldPostingsFormatOrdTermVectorsCodec extends FilterCodec("Lucene80PerFieldPostingsFormatOrdTermVectorsCodec",new Lucene80Codec()) with PerFieldPostingsFormatOrdTermVectorsCodec {
 
   var perFieldPostingsFormat: Map[String, PostingsFormat] = Map.empty
   var termVectorFilter: Predicate[BytesRef] = _
