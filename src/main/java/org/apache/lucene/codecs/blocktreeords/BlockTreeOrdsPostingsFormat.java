@@ -26,7 +26,6 @@ import org.apache.lucene.codecs.PostingsReaderBase;
 import org.apache.lucene.codecs.PostingsWriterBase;
 import org.apache.lucene.codecs.blocktree.BlockTreeTermsWriter;
 import org.apache.lucene.codecs.lucene50.Lucene50PostingsReader;
-import org.apache.lucene.codecs.lucene84.Lucene84PostingsReader;
 import org.apache.lucene.codecs.lucene84.Lucene84PostingsWriter;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
@@ -77,7 +76,7 @@ public class BlockTreeOrdsPostingsFormat extends PostingsFormat {
         PostingsReaderBase postingsReader = new Lucene50PostingsReader(state);
         boolean success = false;
         try {
-            FieldsProducer ret = new OrdsBlockTreeTermsReader(postingsReader, state);
+            FieldsProducer ret = new Lucene84OrdsBlockTreeTermsReader(postingsReader, state);
             success = true;
             return ret;
         } finally {

@@ -24,9 +24,9 @@ class Lucene80PerFieldPostingsFormatOrdTermVectorsCodec extends FilterCodec("Luc
     
   private val ordTermVectorsFormat = new TermVectorsFormat {
      override def vectorsReader(directory: org.apache.lucene.store.Directory,segmentInfo: org.apache.lucene.index.SegmentInfo,fieldInfos: org.apache.lucene.index.FieldInfos,context: org.apache.lucene.store.IOContext): org.apache.lucene.codecs.TermVectorsReader =
-       new OrdTermVectorsReader(directory, segmentInfo, "",fieldInfos, context, "OrdTermVectors", CompressionMode.FAST_DECOMPRESSION, pfPostingsFormat)
+       new OrdTermVectorsReader(directory, segmentInfo, "",fieldInfos, context, "OrdTermVectorsData", CompressionMode.FAST_DECOMPRESSION, pfPostingsFormat)
      override def vectorsWriter(directory: org.apache.lucene.store.Directory,segmentInfo: org.apache.lucene.index.SegmentInfo,context: org.apache.lucene.store.IOContext): org.apache.lucene.codecs.TermVectorsWriter =
-       new OrdTermVectorsWriter(directory, segmentInfo, "", context, "OrdTermVectors", CompressionMode.FAST_DECOMPRESSION, 1 << 12, 1024, pfPostingsFormat, termVectorFilter)
+       new OrdTermVectorsWriter(directory, segmentInfo, "", context, "OrdTermVectorsData", CompressionMode.FAST_DECOMPRESSION, 1 << 12, 1024, pfPostingsFormat, termVectorFilter)
   }
 
   override def termVectorsFormat() = ordTermVectorsFormat

@@ -32,7 +32,7 @@ import org.apache.lucene.index.SegmentWriteState;
 import org.apache.lucene.util.IOUtils;
 
 /** Uses {@link OrdsBlockTreeTermsWriter} with {@link Lucene84PostingsWriter}. */
-public class Lucene84BlockTreeOrdsPostingsFormat extends PostingsFormat {
+public class Lucene85BlockTreeOrdsPostingsFormat extends PostingsFormat {
 
     private final int minTermBlockSize;
     private final int maxTermBlockSize;
@@ -46,7 +46,7 @@ public class Lucene84BlockTreeOrdsPostingsFormat extends PostingsFormat {
 
     /** Creates {@code Lucene41PostingsFormat} with default
      *  settings. */
-    public Lucene84BlockTreeOrdsPostingsFormat() {
+    public Lucene85BlockTreeOrdsPostingsFormat() {
         this(OrdsBlockTreeTermsWriter.DEFAULT_MIN_BLOCK_SIZE, OrdsBlockTreeTermsWriter.DEFAULT_MAX_BLOCK_SIZE);
     }
 
@@ -54,7 +54,7 @@ public class Lucene84BlockTreeOrdsPostingsFormat extends PostingsFormat {
      *  values for {@code minBlockSize} and {@code
      *  maxBlockSize} passed to block terms dictionary.
      *  @see OrdsBlockTreeTermsWriter#OrdsBlockTreeTermsWriter(SegmentWriteState,PostingsWriterBase,int,int) */
-    public Lucene84BlockTreeOrdsPostingsFormat(int minTermBlockSize, int maxTermBlockSize) {
+    public Lucene85BlockTreeOrdsPostingsFormat(int minTermBlockSize, int maxTermBlockSize) {
         super("Lucene84BlockTreeOrds");
         this.minTermBlockSize = minTermBlockSize;
         this.maxTermBlockSize = maxTermBlockSize;

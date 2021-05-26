@@ -2,7 +2,7 @@ name := """lucene-perfieldpostingsformatordtermvectorscodec"""
 
 organization := "fi.hsci"
 
-version := "1.2.3"
+version := "1.2.5"
 
 scalaVersion := "2.13.5"
 
