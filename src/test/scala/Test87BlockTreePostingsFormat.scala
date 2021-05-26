@@ -1,6 +1,6 @@
 import fi.hsci.lucene.Lucene87PerFieldPostingsFormatOrdTermVectorsCodec
-import org.apache.lucene.codecs.blocktreeords.BlockTreeOrdsPostingsFormat
+import org.apache.lucene.codecs.blocktreeords.Lucene84BlockTreeOrdsPostingsFormat
 
-class Test87BlockTreePostingsFormat extends ATestPerFieldPostingsFormatOrdTermVectorsCodec(new BlockTreeOrdsPostingsFormat(), new Lucene87PerFieldPostingsFormatOrdTermVectorsCodec()) {
+class Test87BlockTreePostingsFormat extends ATestPerFieldPostingsFormatOrdTermVectorsCodec(new Lucene84BlockTreeOrdsPostingsFormat(), new Lucene87PerFieldPostingsFormatOrdTermVectorsCodec()) {
   
 }

@@ -1,1 +1,2 @@
+org.apache.lucene.codecs.blocktreeords.BlockTreeOrdsPostingsFormat
 org.apache.lucene.codecs.blocktreeords.Lucene84BlockTreeOrdsPostingsFormat
