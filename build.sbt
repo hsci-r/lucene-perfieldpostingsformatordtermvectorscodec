@@ -2,7 +2,7 @@ name := """lucene-perfieldpostingsformatordtermvectorscodec"""
 
 organization := "fi.hsci"
 
-version := "1.2.5"
+version := "1.2.6"
 
 scalaVersion := "2.13.5"
 
@@ -13,8 +13,8 @@ scalacOptions += "-target:jvm-11"
 crossScalaVersions := Seq("2.10.7", "2.11.12","2.12.10")
 
 libraryDependencies ++= Seq(
-  "org.apache.lucene" % "lucene-codecs" % "8.8.1" % "provided",
-  "org.apache.lucene" % "lucene-backward-codecs" % "8.8.1" % "provided",
+  "org.apache.lucene" % "lucene-codecs" % "8.8.2",
+  "org.apache.lucene" % "lucene-backward-codecs" % "8.8.2",
   "com.koloboke" % "koloboke-api-jdk8" % "1.0.0",
   "com.koloboke" % "koloboke-impl-jdk8" % "1.0.0", 
   "junit" % "junit" % "4.13.2" % "test"
