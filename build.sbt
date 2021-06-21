@@ -2,13 +2,13 @@ name := """lucene-perfieldpostingsformatordtermvectorscodec"""
 
 organization := "fi.hsci"
 
-version := "1.2.7"
+version := "1.2.8"
 
 scalaVersion := "2.13.6"
 
-javacOptions ++= Seq("-source", "15", "-target", "15")
+javacOptions ++= Seq("--release", "11")
 
-scalacOptions += "-target:jvm-15"
+scalacOptions ++= Seq("-release", "11")
 
 crossScalaVersions := Seq("2.10.7", "2.11.12","2.12.10")
 
