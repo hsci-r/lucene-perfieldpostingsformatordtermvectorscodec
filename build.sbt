@@ -2,7 +2,7 @@ name := """lucene-perfieldpostingsformatordtermvectorscodec"""
 
 organization := "fi.hsci"
 
-version := "1.2.8"
+version := "1.2.9"
 
 scalaVersion := "2.13.6"
 
@@ -28,10 +28,10 @@ publishTo := {
     Some("releases"  at nexus + "service/local/staging/deploy/maven2")
 }
 
-assemblyMergeStrategy in assembly := {
+assembly / assemblyMergeStrategy := {
   case PathList("org", "apache", "lucene", "codecs", "blocktreeords", "BlockTreeOrdsPostingsFormat.class") => MergeStrategy.first // override badly named contrib codec
   case x =>
-    val oldStrategy = (assemblyMergeStrategy in assembly).value
+    val oldStrategy = (assembly / assemblyMergeStrategy).value
     oldStrategy(x)
 }
 
