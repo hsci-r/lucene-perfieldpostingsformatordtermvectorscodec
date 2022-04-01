@@ -1,6 +1,8 @@
 name := """lucene-perfieldpostingsformatordtermvectorscodec"""
 
-organization := "fi.hsci"
+organization := "io.github.hsci-r"
+
+publishMavenStyle := true
 
 version := "1.2.9"
 
@@ -21,12 +23,14 @@ libraryDependencies ++= Seq(
 )
 
 publishTo := {
-  val nexus = "https://oss.sonatype.org/"
+  val nexus = "https://s01.oss.sonatype.org/"
   if (isSnapshot.value)
     Some("snapshots" at nexus + "content/repositories/snapshots")
   else
     Some("releases"  at nexus + "service/local/staging/deploy/maven2")
 }
+
+ThisBuild / sonatypeCredentialHost := "s01.oss.sonatype.org"
 
 assembly / assemblyMergeStrategy := {
   case PathList("org", "apache", "lucene", "codecs", "blocktreeords", "BlockTreeOrdsPostingsFormat.class") => MergeStrategy.first // override badly named contrib codec
