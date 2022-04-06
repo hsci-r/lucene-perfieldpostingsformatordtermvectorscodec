@@ -1,10 +1,19 @@
 // To sync with Maven central, you need to supply the following information:
-publishMavenStyle := true
+ThisBuild / publishMavenStyle := true
 
 // Open-source license of your choice
-licenses := Seq("MIT" -> url("https://opensource.org/licenses/MIT"))
+ThisBuild / licenses := Seq("MIT" -> url("https://opensource.org/licenses/MIT"))
 
-// Where is the source code hosted: GitHub or GitLab?
-import xerial.sbt.Sonatype._
-sonatypeProjectHosting := Some(GitHubHosting("hsci-r", "lucene-perfieldpostingsformatordtermvectorscodec", "eetu.makela@iki.fi"))
+ThisBuild / homepage := Some(url("https://github.com/hsci-r/perfieldpostingsformatordtermvectorscodec"))
+
+ThisBuild / scmInfo := Some(
+  ScmInfo(
+    url("https://github.com/hsci-r/perfieldpostingsformatordtermvectorscodec"),
+    "scm:git@github.com:hsci-r/perfieldpostingsformatordtermvectorscodec.git"
+  )
+)
+
+ThisBuild / developers := List(
+  Developer(id="jiemakel", name="Eetu Mäkelä", email="eetu.makela@iki.fi",url=url("https://iki.fi/eetu.makela"))
+)
 

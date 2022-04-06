@@ -1,13 +1,12 @@
 lazy val core = (projectMatrix in file("."))
   .settings(
-    name := "lucene-perfieldpostingsformatordtermvectorscodec",
-    publish / skip := true
+    name := "lucene-perfieldpostingsformatordtermvectorscodec"
   )
-  .jvmPlatform(scalaVersions = Seq("3.1.2","2.13.8"))
+  .jvmPlatform(scalaVersions = Seq("2.13.8"))
 
 ThisBuild / organization := "io.github.hsci-r"
 
-ThisBuild / version := "1.2.11"
+ThisBuild / version := "1.2.12"
 
 ThisBuild / versionScheme := Some("early-semver")
 
