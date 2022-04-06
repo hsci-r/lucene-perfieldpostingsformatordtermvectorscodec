@@ -1,20 +1,19 @@
-name := """lucene-perfieldpostingsformatordtermvectorscodec"""
+lazy val core = (projectMatrix in file("."))
+  .settings(
+    name := "lucene-perfieldpostingsformatordtermvectorscodec",
+    publish / skip := true
+  )
+  .jvmPlatform(scalaVersions = Seq("3.1.2","2.13.8"))
 
-organization := "io.github.hsci-r"
+ThisBuild / organization := "io.github.hsci-r"
 
-publishMavenStyle := true
+ThisBuild / version := "1.2.11"
 
-version := "1.2.9"
+ThisBuild / versionScheme := Some("early-semver")
 
-scalaVersion := "2.13.6"
+ThisBuild / scalaVersion := "3.1.2"
 
-javacOptions ++= Seq("--release", "11")
-
-scalacOptions ++= Seq("-release", "11")
-
-crossScalaVersions := Seq("2.10.7", "2.11.12","2.12.10")
-
-libraryDependencies ++= Seq(
+ThisBuild / libraryDependencies ++= Seq(
   "org.apache.lucene" % "lucene-codecs" % "8.9.0",
   "org.apache.lucene" % "lucene-backward-codecs" % "8.9.0",
   "com.koloboke" % "koloboke-api-jdk8" % "1.0.0",
@@ -22,17 +21,11 @@ libraryDependencies ++= Seq(
   "junit" % "junit" % "4.13.2" % "test"
 )
 
-publishTo := {
-  val nexus = "https://s01.oss.sonatype.org/"
-  if (isSnapshot.value)
-    Some("snapshots" at nexus + "content/repositories/snapshots")
-  else
-    Some("releases"  at nexus + "service/local/staging/deploy/maven2")
-}
+ThisBuild / publishTo := sonatypePublishToBundle.value
 
 ThisBuild / sonatypeCredentialHost := "s01.oss.sonatype.org"
 
-assembly / assemblyMergeStrategy := {
+ThisBuild / assembly / assemblyMergeStrategy := {
   case PathList("org", "apache", "lucene", "codecs", "blocktreeords", "BlockTreeOrdsPostingsFormat.class") => MergeStrategy.first // override badly named contrib codec
   case x =>
     val oldStrategy = (assembly / assemblyMergeStrategy).value
